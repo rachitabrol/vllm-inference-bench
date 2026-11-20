@@ -76,15 +76,16 @@ report.md    engineering write-up (template; filled after real results)
 
 ## Key findings
 
-From run `44703863719-1-L4` (Qwen2.5-1.5B, vLLM 0.34.0, one L4). Details and caveats in [report.md](report.md).
+Qwen2.5-1.5B, vLLM 0.34.0, one L4. Medians of 3 repeats, each in its own container; throughput CV ≤ 3.3%. Details in [report.md](report.md).
 
 - **Batch 1 is bandwidth-bound:** TPOT 13.4 ms vs a 10.3 ms floor (3.1 GB weights / 300 GB/s).
-- **Concurrency is the big lever:** 73 → 1603 tok/s from 1 to 32 users with TPOT only 13.5 → 17.6 ms; cost per 1M output tokens $3.04 → $0.14.
-- **Tail TTFT binds first:** at 64 users p95 TTFT jumps to 832 ms (SLO 500 ms) while KV cache is only ~7% used.
-- **Prefix caching:** −75% TTFT, +61% throughput on a shared-prefix workload; hit rate 0.89 = the shared fraction.
-- **KV exhaustion:** a 2 GiB cache under ~98k tokens of demand caused 70 preemptions, 2× p95 TTFT, −11% throughput.
-- **Best under SLO:** baseline at concurrency 32 → **$0.139 / 1M output tokens** on an L4.
-- **Noise:** identical configs on two containers differed by 23%. Single runs; small differences are not significant.
+- **Concurrency is the big lever:** 73 → 833 tok/s from 1 to 16 users with TPOT only 13.4 → 16.4 ms; cost per 1M output tokens $3.03 → $0.27.
+- **Tail TTFT breaks first:** p95 TTFT crosses 500 ms between 16 and 32 users (427 → 809 ms), driven by prefill queueing; KV cache < 7% used.
+- **Chunked prefill:** an 8192-token budget has the best p95 inter-token latency (27 ms) and the worst p99 (560 ms). Throughput is unchanged.
+- **Prefix caching:** −70% TTFT, +54% throughput on a shared-prefix workload; hit rate 0.89 = the shared fraction.
+- **KV exhaustion:** a 2 GiB cache under ~98k tokens of demand caused 70 preemptions, 2× p95 TTFT, −12% throughput.
+- **Best under SLO:** concurrency 16 → **$0.27 / 1M output tokens** on an L4 ($0.22 with prefix caching on shared-prefix traffic).
+- **Caught a benchmark bug:** a shared random seed let prefix caching inflate early results ~2× on cost. It was found through repeats plus hit-rate telemetry and fixed with per-workload seeds.
 
 ## How this was built
 

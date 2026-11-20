@@ -1,71 +1,82 @@
 # vLLM serving: engineering report
 
-> **Correction pending (2026-11-20).** A 3-repeat rerun (`44708914259-1-L4`) showed run-to-run noise is tiny (throughput CV ≤ 3.3%), so the 23% gap noted under Limitations is *not* noise. It's a measurement bug: every workload used seed 42, so workloads run back-to-back on one server sent identical prompts and prefix caching served 69–94% of prefill from cache in **02 and 03**. Numbers in 02, 03 and the 05 pick below are inflated; 01 and 04a–04d were unaffected (≤ 5% hit rate, from warm-up). Fixed with per-workload seeds; 01–03 are being re-run.
+All numbers are medians of 3 repeats, each repeat in its own GPU container.
+- **01–03:** run `44748004817-1-L4` (per-workload seeds, see "Lesson" below).
+- **04a–04d:** run `44708914259-1-L4`.
 
-All numbers below come from run `44703863719-1-L4` (`results/summary.csv`, `results/SUMMARY.md`, `plots/`). Single run per point; see Limitations for how much to trust small differences.
+Combined outputs are in `results/summary_agg.csv`, `results/SUMMARY.md` and `plots/`. The first single-shot run (`44703863719-1-L4`) is kept in `results/raw/` for history only; its 02/03 numbers are wrong.
 
 ## Setup
 
-- Model: `Qwen/Qwen2.5-1.5B-Instruct`, bf16 (~3.1 GB of weights).
-- Engine: vLLM 0.34.0, V1 engine (continuous batching always on), `vllm serve` driven by `vllm bench serve`.
-- GPU: NVIDIA L4 (24 GB, ~300 GB/s memory bandwidth) on Modal at $0.80/hr (checked 2026-11-20).
-- Workload default: 512 input / 128 output tokens, random dataset, seed 42, `--ignore-eos`, `--temperature 0`, 10 discarded warm-up requests.
-- SLO: p95 TTFT ≤ 500 ms, p95 TPOT ≤ 50 ms, zero failed requests.
-- Every run: 0 failed requests.
+- **Model:** `Qwen/Qwen2.5-1.5B-Instruct`, bf16 (~3.1 GB of weights).
+- **Engine:** vLLM 0.34.0, V1 engine (continuous batching always on), prefix caching on in the baseline. `vllm serve` is driven by `vllm bench serve`.
+- **GPU:** NVIDIA L4 (24 GB, ~300 GB/s memory bandwidth) on Modal at $0.80/hr (price checked 2026-11-20).
+- **Workload default:** 512 input / 128 output tokens, random-token prompts with a seed per workload, `--ignore-eos`, `--temperature 0`, 10 warm-up requests.
+- **SLO:** p95 TTFT ≤ 500 ms, p95 TPOT ≤ 50 ms, zero failed requests.
+- **Reliability:** 0 failed requests in every measured run.
+- **Repeatability:** throughput CV across all 23 points is at most 3.3% (median 0.7%). p95 TTFT CV is at most 10.2% (median 2.9%). Differences larger than ~5% are real.
 
 ## 01 Baseline latency
 
 **Measured:** concurrency 1, 50 prompts.
 
-**Result:** TTFT p50 36 ms / p95 39 ms. TPOT 13.4 ms (≈ 75 tokens/s for one user). E2E p95 1.75 s for 128 output tokens.
+**Result:** TTFT p50 38 ms / p95 43 ms. TPOT 13.4 ms (~75 tokens/s for one user). E2E p95 1.75 s for 128 output tokens.
 
-**Why:** decode is memory-bandwidth-bound. Each new token reads every weight once: 3.1 GB / 300 GB/s ≈ 10.3 ms is the theoretical floor. We measured 13.4 ms, about 77% of the bandwidth roofline. The remaining gap is kernel launch overhead, attention over the KV cache, and sampling. A 512-token prefill takes only ~36 ms because prefill processes all prompt tokens in parallel (one weight read, many tokens), which makes it compute-bound rather than bandwidth-bound.
+**Why:** decode is memory-bandwidth-bound.
+- Each new token reads every weight once: 3.1 GB / 300 GB/s ≈ 10.3 ms is the floor. We measured 13.4 ms, about 77% of the bandwidth roofline. The gap is kernel launch overhead, attention over the KV cache, and sampling.
+- A 512-token prefill takes only ~38 ms because prefill processes all prompt tokens in one pass over the weights. That makes prefill compute-bound, not bandwidth-bound.
 
-**Interview takeaway:** "At batch 1 the GPU is a memory-bandwidth machine. I can predict TPOT from model size ÷ bandwidth, and my measurement was within ~25% of that floor."
+**Interview takeaway:** "At batch 1 the GPU is a memory-bandwidth machine. I can predict TPOT from model size ÷ bandwidth, and the measurement was within ~25% of that floor."
 
 ## 02 Concurrency sweep
 
-**Measured:** same workload at max concurrency 1, 4, 8, 16, 32, 64.
+**Measured:** the same workload at max concurrency 1, 4, 8, 16, 32 and 64, all on one server, each step with its own prompts.
 
-| conc | out tok/s | TTFT p95 (ms) | TPOT p50 (ms) | $/1M out tok | SLO |
-|---|---|---|---|---|---|
-| 1 | 73 | 48 | 13.5 | 3.04 | yes |
-| 8 | 545 | 89 | 14.2 | 0.41 | yes |
-| 32 | 1603 | 191 | 17.6 | 0.14 | yes |
-| 64 | 2438 | 832 | 22.0 | 0.09 | **no** |
+| conc | out tok/s | TTFT p95 (ms) | TPOT p50 (ms) | ITL p99 (ms) | $/1M out tok | SLO |
+|---|---|---|---|---|---|---|
+| 1 | 73 | 40 | 13.4 | 15 | 3.03 | yes |
+| 4 | 269 | 150 | 13.9 | 17 | 0.83 | yes |
+| 8 | 496 | 254 | 14.9 | 37 | 0.45 | yes |
+| 16 | 833 | 427 | 16.4 | 99 | 0.27 | yes |
+| 32 | 1231 | 809 | 21.5 | 129 | 0.18 | **no** |
+| 64 | 1804 | 1721 | 32.0 | 138 | 0.12 | **no** |
 
-**Result:** throughput scaled ~7.5× from 1→8 (almost perfectly linear) and ~33× from 1→64, while TPOT p50 only rose from 13.5 to 22 ms. The SLO breaks between 32 and 64: p95 TTFT jumps from 191 to 832 ms.
+**Result:**
+- **Throughput scales almost for free at first.** From 1 to 16 users, throughput rose 11× while TPOT only went from 13.4 to 16.4 ms (+23%). From 1 to 64 it rose 25×.
+- **The SLO breaks between 16 and 32 users, on p95 TTFT** (427 → 809 ms). p95 TPOT stays far under its 50 ms limit throughout.
+- **Memory is not the limit.** KV cache usage peaked at only 6.9% at concurrency 64.
 
-**Why:** batching amortizes the weight reads. One pass over the weights produces a token for every sequence in the batch, so up to ~16 concurrent requests each user barely notices (TPOT +10%) while total throughput climbs ~14×. Past that, each step does more compute and new prompts' prefills interleave with decode steps, so per-token latency starts to rise. At 64, prefill of new arrivals queues behind a busy engine, and that shows up first in the TTFT tail (p95), not the median. Memory was not the limit: KV cache usage peaked at only ~7% at concurrency 64.
+**Why:**
+- **Batching amortizes the weight reads.** One pass over the weights produces a token for every sequence in the batch, so at small batch sizes extra users cost almost nothing.
+- **Prefill is the bottleneck past that point.** As concurrency rises, more new prompts arrive per second. Their prefills queue and also interleave with decode steps. Queueing shows up in TTFT. Interleaving shows up as ITL p99 spikes (15 ms at 1 user, ~100–140 ms at 16+), where a decode token waits behind someone's prefill chunk.
+- **The tail goes first.** Median TTFT barely moves from 32 to 64 users (370 → 413 ms) while p95 doubles. Unlucky requests land behind a burst of prefills.
 
-**Interview takeaway:** "Concurrency is the cheapest lever: 22× lower cost per token from 1 to 32 users. The constraint that binds first is tail TTFT, not average latency and not memory."
+**Interview takeaway:** "Concurrency is the cheapest lever: 11× cost reduction from 1 to 16 users. The first thing to break is tail TTFT, driven by prefill queueing. It's not average latency and not memory."
 
 ## 03 Prefill vs decode
 
 **Measured:** input {128, 1024, 4096} × output {64, 512} at concurrency 8.
 
-| in → out | TTFT p50 (ms) | TPOT p50 (ms) | E2E p95 (s) |
-|---|---|---|---|
-| 128 → 64 | 54 | 13.8 | 0.95 |
-| 1024 → 64 | 237 | 17.5 | 1.39 |
-| 4096 → 64 | 708 | 34.3 | 3.16 |
-| 128 → 512 | 48 | 13.8 | 7.13 |
-| 1024 → 512 | 52 | 14.7 | 7.58 |
-| 4096 → 512 | 807 | 19.8 | 11.11 |
+| in → out | TTFT p50 (ms) | TPOT p50 (ms) | ITL p95 (ms) | E2E p95 (s) |
+|---|---|---|---|---|
+| 128 → 64 | 59 | 14.0 | 15 | 0.95 |
+| 1024 → 64 | 204 | 18.9 | 67 | 1.46 |
+| 4096 → 64 | 853 | 37.7 | 146 | 3.37 |
+| 128 → 512 | 67 | 14.0 | 14 | 7.24 |
+| 1024 → 512 | 207 | 15.3 | 15 | 8.10 |
+| 4096 → 512 | 855 | 20.0 | 18 | 11.23 |
 
 **Result:**
-- **Input length drives TTFT.** At 4096 input tokens, TTFT is 700–800 ms, over the SLO even at concurrency 8.
-- **Output length drives E2E.** Going from 64 to 512 output tokens raises E2E 3.5–7.5×, roughly output_len × TPOT on top of TTFT.
-- **Long prompts slow other users' decode.** At 4096→64, TPOT p50 is 34 ms and ITL p95 is 142 ms, versus ~14 ms for short prompts.
-- **Odd one out.** 1024→512 has a *lower* TTFT (52 ms) than 1024→64 (237 ms).
+- **Input length sets TTFT,** and output length has no effect on it: 59 / 204 / 853 ms for 128 / 1024 / 4096 input tokens, the same with 64 or 512 outputs. 4096-token prompts miss the 500 ms SLO even at concurrency 8.
+- **Output length sets E2E.** Going from 64 to 512 output tokens raises E2E 3.3–7.6×. E2E ≈ TTFT + output_len × TPOT; for example, 67 ms + 512 × 14 ms ≈ 7.2 s.
+- **Long prompts slow everyone's decode, but only when outputs are short.** At 4096 → 64, TPOT is 37.7 ms with ITL p95 146 ms. At 4096 → 512, it's 20.0 ms with ITL p95 18 ms.
 
 **Why:**
 - **Prefill.** Prefill work grows with prompt length (linear for the MLPs, quadratic for attention), so TTFT tracks input length.
-- **Decode.** Decode emits one token per step per sequence, so E2E tracks output length.
-- **Interference.** When a 4096-token prefill is chunked into the same steps as other sequences' decode, those decode tokens wait. That is the TPOT/ITL hit.
-- **The odd case.** With short outputs, all 8 requests finish at about the same time and the next 8 arrive together, so their prefills collide. With long outputs, completions are staggered, so a new prompt usually prefills nearly alone. This is a workload-shape effect, not a property of 1024-token prompts.
+- **Decode.** Decode produces one token per step per sequence, so E2E tracks output length.
+- **The decode slowdown is a ratio effect.** A short-output request finishes quickly and is replaced by a new one, which brings a new 4096-token prefill. With 64-token outputs, prefills are a large share of all GPU steps, and decode tokens keep waiting behind them. With 512-token outputs, the same prefills are spread across 8× more decode steps, so the interference is diluted.
 
-**Interview takeaway:** "Prefill sets TTFT, decode sets E2E, and long prefills hurt everyone else's decode. That interference is exactly what chunked prefill (04b) is meant to manage."
+**Interview takeaway:** "Prefill sets TTFT, decode sets E2E, and how much prefill hurts decode depends on the ratio of prompt tokens to generated tokens. RAG-style traffic with long prompts and short answers is the worst case."
 
 ## 04a max_num_seqs (batch width)
 
@@ -73,13 +84,13 @@ All numbers below come from run `44703863719-1-L4` (`results/summary.csv`, `resu
 
 | max_num_seqs | out tok/s | TTFT p50 | TPOT p50 |
 |---|---|---|---|
-| 8 | 504 | 14.4 s | 14.9 ms |
-| 32 | 1343 | 3.2 s | 22.2 ms |
-| 256 | 1869 | 0.38 s | 31.0 ms |
+| 8 | 504 | 14.3 s | 14.9 ms |
+| 32 | 1345 | 3.2 s | 21.9 ms |
+| 256 | 1851 | 0.39 s | 31.3 ms |
 
-**Result:** capping the batch at 8 cut throughput 3.7× and pushed median TTFT to 14 seconds. The small cap did give the best per-token latency (14.9 ms vs 31 ms).
+**Result:** capping the batch at 8 cut throughput 3.7× and pushed median TTFT to 14 seconds, while giving the fastest tokens per user (14.9 ms vs 31.3 ms).
 
-**Why:** V1 always batches continuously, but `max_num_seqs` limits how many sequences can share each step. With a cap of 8, 56 of the 64 requests sit in the waiting queue, so TTFT becomes pure queueing time. The running 8 get fast, light decode steps. A wider batch spreads each weight read over more sequences, giving higher throughput but a heavier step and slower tokens for each user.
+**Why:** V1 always batches continuously, but `max_num_seqs` limits how many sequences share each step. With a cap of 8, 56 of 64 requests sit in the waiting queue, so their TTFT is pure queueing time. The 8 that are running get light, fast decode steps. A wider batch spreads each weight read over more sequences: more throughput, but a heavier step and slower tokens for each user.
 
 **Interview takeaway:** "Batch width trades per-user token speed against queueing. Too narrow and users wait in line; for an interactive SLO the queue is the bigger problem."
 
@@ -87,39 +98,41 @@ All numbers below come from run `44703863719-1-L4` (`results/summary.csv`, `resu
 
 **Measured:** token budget per step of 512 / 2048 (baseline) / 8192, with 4096-token prompts at concurrency 16.
 
-| budget | out tok/s | TTFT p50 | TPOT p50 | ITL p95 |
-|---|---|---|---|---|
-| 512 | 288 | 636 ms | 50.2 ms | 57 ms |
-| 2048 | 297 | 875 ms | 47.0 ms | 147 ms |
-| 8192 | 291 | 1914 ms | 39.8 ms | 28 ms |
+| budget | out tok/s | TTFT p50 | TPOT p50 | ITL p95 | ITL p99 |
+|---|---|---|---|---|---|
+| 512 | 285 | 642 ms | 51.1 ms | 57 ms | 59 ms |
+| 2048 | 300 | 768 ms | 47.0 ms | 147 ms | 151 ms |
+| 8192 | 289 | 1938 ms | 39.6 ms | 27 ms | **560 ms** |
 
-**Result:** throughput was the same within noise (~3%), so this knob doesn't buy throughput here. What it changes is how latency is distributed:
-- **512:** best TTFT, worst TPOT.
-- **8192:** worst TTFT, best TPOT and best p95 ITL.
-- **2048:** a bad p95 ITL. No config met the SLO, because 4096-token prompts at concurrency 16 are too heavy for an L4 with this model.
+**Result:** throughput is flat (285–300 tok/s), so this knob doesn't buy throughput. It changes the *shape* of the latency:
+- **512:** best TTFT. Inter-token latency is consistently ~57 ms with no spikes.
+- **2048:** frequent medium stalls of ~150 ms.
+- **8192:** worst TTFT and the best p95 ITL (27 ms), but a **560 ms p99**, the worst stall of the three.
 
-**Why (best explanation, worth re-running to confirm):**
-- **512.** Long prompts are split into many small chunks. Every step stays light, so decode is never badly stalled, but prefill work is spread across many steps that all carry some extra load, which raises median TPOT.
-- **8192.** A whole 4096-token prompt fits in one step. Prefills finish in a few big steps, so most decode steps are pure decode and fast (low p95 ITL). The stalls become rarer but larger, and p95 hides them. Admitting big prefills in bursts also lengthens the queue for later arrivals (high TTFT).
-- **2048.** Each prompt takes two medium chunks, so moderate stalls land on more than 5% of tokens, which shows up in p95 ITL.
+No config meets the SLO; 4096-token prompts at concurrency 16 are too heavy for this GPU and model.
 
-p99/max ITL would separate "rare big stalls" from "frequent medium stalls". That is the next measurement to add.
+**Why:**
+- **Same work, different scheduling.** The chunk budget decides how a long prefill is sliced across engine steps. Total work is the same, so throughput doesn't change. What changes is how the cost lands on concurrent decodes.
+- **512.** Many small chunks. Every step carries a little prefill, so decode is never badly stalled, but every token is a bit slower (high median TPOT).
+- **8192.** A whole 4096-token prompt fits in one step, so most steps are pure decode and fast. When a prefill step does happen, every decoding sequence waits for all of it: rare but huge stalls. They are invisible at p95 (27 ms) and dominant at p99 (560 ms).
+- **2048.** Two medium chunks per prompt, so medium stalls land on more than 5% of tokens.
+- **TTFT.** Larger budgets let the scheduler admit several big prefills at once, which delays later arrivals.
 
-**Interview takeaway:** "The chunked-prefill budget doesn't change total work, it changes who waits. Small chunks protect time-to-first-token, big chunks protect steady decode. Choose based on which SLO you're defending, and look at more than one percentile."
+**Interview takeaway:** "The chunked-prefill budget doesn't change total work, it changes who waits and how often. Small chunks give smooth, predictable streaming. Big chunks look great at p95 and terrible at p99. This is why I report more than one percentile: the 8192 config would have looked best if I'd stopped at p95."
 
 ## 04c Prefix caching
 
-**Measured:** caching on (baseline) vs off; every request shares a 1024-token prefix plus a 128-token unique suffix, concurrency 16.
+**Measured:** caching on (baseline) vs off. Every request shares a 1024-token prefix plus a 128-token unique suffix, at concurrency 16.
 
 **Result:**
-- TTFT p50 fell from 430 ms to 109 ms (−75%), and p95 from 590 ms to 174 ms.
-- Throughput rose 61% (613 → 990 tok/s), and cost per token fell by the same factor ($0.36 → $0.23 per 1M).
-- Prefix cache hit rate was 0.89, almost exactly the shared fraction 1024/1152 = 0.889.
-- Caching on is the only config here that meets the SLO.
+- **TTFT:** p50 fell from 331 ms to 98 ms (−70%), and p95 from 507 ms to 161 ms.
+- **Throughput:** rose 54% (646 → 996 tok/s), and cost fell from $0.34 to $0.22 per 1M output tokens.
+- **Hit rate:** 0.89, matching the shared fraction 1024/1152 = 0.889.
+- **SLO:** caching off narrowly fails it (p95 TTFT 507 ms); caching on passes easily.
 
-**Why:** with caching, vLLM hashes KV blocks by their token content. A request whose prefix blocks are already cached skips prefill for those tokens and only computes the 128-token suffix. That removes ~89% of prefill compute, so TTFT drops and freed compute goes to decode. Without caching, every request recomputes the same 1024-token prefix.
+**Why:** vLLM hashes KV blocks by their token content. When a request's prefix blocks are already cached, it skips prefill for those tokens and computes only the 128-token suffix. That removes ~89% of prefill compute, so TTFT drops and the freed compute goes to decode (TPOT 21.7 → 14.9 ms).
 
-**Interview takeaway:** "For workloads with shared prompts (system prompts, RAG templates, multi-turn chat), prefix caching is close to free performance: the hit rate matched the theoretical shared fraction, and it was the difference between passing and failing the SLO."
+**Interview takeaway:** "For shared-prompt traffic (system prompts, RAG templates, multi-turn chat), prefix caching is nearly free performance. The hit rate matched the theoretical shared fraction. It was also strong enough to fool my own benchmark (see Lesson)."
 
 ## 04d KV cache capacity
 
@@ -127,47 +140,64 @@ p99/max ITL would separate "rare big stalls" from "frequent medium stalls". That
 
 | KV budget | KV peak | preemptions | out tok/s | TTFT p95 | TPOT p95 | E2E p95 |
 |---|---|---|---|---|---|---|
-| default (~15 GB) | 17% | 0 | 1871 | 3.4 s | 33.5 ms | 20.3 s |
+| default (~15 GB) | 17% | 0 | 1905 | 3.3 s | 32.9 ms | 20.0 s |
 | 2 GiB | 100% | 70 | 1670 | 7.0 s | 45.7 ms | 26.1 s |
 
 **Result:**
-- The small cache filled to 100% and caused 70 preemptions.
-- Throughput fell 11%, p95 TTFT doubled, and p95 E2E rose 29%.
-- With the default budget, the L4 used only 17% of its KV cache even at this load.
+- The 2 GiB cache filled to 100% and caused 70 preemptions (the median; all 3 repeats were consistent).
+- Throughput fell 12%, p95 TTFT doubled, and p95 E2E rose 31%.
+- At default settings the L4 used only 17% of its KV cache at this load.
 
 **Why:**
-- **Running out of blocks.** Each running sequence needs KV blocks for every token so far. When no free block is left for the next decode step, the scheduler preempts a running sequence: it frees that sequence's blocks and later recomputes its whole prefix. That is wasted prefill work (lower throughput) plus extra waiting for the victim (tail latency).
-- **Validating the setup.** My per-token estimate (2 × 28 layers × 2 KV heads × 128 head dim × 2 bytes ≈ 28 KiB) correctly predicted that 98k tokens would not fit in 2 GiB.
+- **Running out of blocks.** Every running sequence needs KV blocks for all of its tokens so far. When no free block is left for the next decode step, the scheduler preempts a running sequence: it frees that sequence's blocks and later recomputes its whole prefix. That is wasted prefill work (lower throughput) plus extra waiting for the evicted request (worse tail).
+- **The prediction held.** My per-token estimate (2 × 28 layers × 2 KV heads × 128 head dim × 2 bytes ≈ 28 KiB) correctly predicted that 98k tokens would not fit in 2 GiB.
 
-**Interview takeaway:** "KV cache is the real capacity limit for concurrency. I sized the experiment from first principles to force exhaustion, and preemption shows up as recompute: lower throughput and a much worse tail. On this GPU and model there's ~6× headroom, so a bigger model would hit this wall much sooner."
+**Interview takeaway:** "KV cache is the real capacity limit for concurrency. I sized this experiment from first principles to force exhaustion. Preemption shows up as recompute: lower throughput and a much worse tail. This model on an L4 has ~6× headroom, so a bigger model would hit this wall far sooner."
 
 ## 05 Cost / performance
 
-**Result:** the cheapest config that meets the SLO is the **baseline at concurrency 32**: 1603 output tok/s, p95 TTFT 191 ms, p95 TPOT 17.9 ms, **$0.139 per 1M output tokens** on an L4. Concurrency 64 is 35% cheaper ($0.091) but fails the TTFT SLO (832 ms p95). The single-user point costs $3.04, 22× more.
+**Result:**
+- **Best under the SLO, general traffic:** baseline at **concurrency 16**, 833 tok/s, p95 TTFT 427 ms, p95 TPOT 18 ms, **$0.27 per 1M output tokens** on an L4. Concurrency 32 would cost $0.18 but fails p95 TTFT (809 ms).
+- **Shared-prefix traffic:** with prefix caching, concurrency 16 reaches 996 tok/s at **$0.22 per 1M** with p95 TTFT 161 ms, leaving TTFT headroom to push concurrency higher.
+- **Single user:** $3.03 per 1M, 11× more than the SLO-bound optimum.
 
-**Why:** the GPU costs the same per hour whether it's busy or not, so cost per token is just price ÷ throughput. Cost keeps falling as concurrency rises until the latency SLO binds. The optimum sits just before the TTFT tail crosses the limit, which is why you pick "max throughput subject to an SLO" rather than "max throughput".
+**Why:** the GPU costs the same per hour whether it's busy or not, so cost per token is just price ÷ throughput. Cost keeps falling as concurrency rises until the latency SLO binds. The optimum is the last point before the TTFT tail crosses the limit, so the target is "max throughput subject to an SLO", not "max throughput".
 
-**Interview takeaway:** "My recommendation for this model on an L4 is to cap concurrency around 32 per replica and scale horizontally beyond that. For prompt-heavy traffic, turn on prefix caching first, since it moved a failing config to passing."
+**Interview takeaway:** "For this model on an L4, cap each replica at ~16 concurrent requests for a 500 ms p95 TTFT and scale horizontally beyond that. For prompt-heavy traffic, turn on prefix caching before buying more GPUs."
+
+## Lesson: my benchmark was fooled by prefix caching
+
+The first version gave every workload the same random seed (42). Workloads in one experiment run back-to-back on the same server, so 02 and 03 kept sending identical prompts. With prefix caching on, 69–94% of prefill came from cache.
+
+**How it was caught:** repeated runs showed container noise was tiny (CV ≤ 3.3%). Yet the identical config and workload (baseline, 512/128, 64 users) gave 2478 tok/s in 02 and 1851 in 04a, consistently across all 3 repeats. Noise couldn't explain that, and the prefix-cache hit-rate telemetry (0.69–0.88 vs 0.03) pinpointed it.
+
+**Fix:** seed = 42 + crc32(workload id). Workloads on one server never share prompts, while the same workload under different configs still gets identical prompts, so comparisons stay fair. After the fix, 02 and 04a agree within 2.6% and hit rates are ~4% (the warm-up re-sends the first prompt).
+
+**What it got wrong:**
+- **Concurrency limit:** the contaminated 02 said concurrency 32 met the SLO (p95 TTFT 191 ms, $0.14/1M). The truth is 809 ms. The best SLO-compliant config is concurrency 16 at $0.27/1M, so the bug made the system look about 2× cheaper than it is.
+- **Explanation:** it also produced a fake TTFT anomaly in 03 (1024 → 512 looked 4× faster than 1024 → 64), which I had initially explained with a plausible but wrong story about request timing.
+
+**Takeaway:** check cache hit rates in every benchmark of a caching system, and treat a result that survives repeats but contradicts another experiment as a bug until proven otherwise.
 
 ## Bottlenecks
 
 - **Single user:** memory bandwidth (TPOT ≈ 77% of the weights ÷ bandwidth floor).
-- **High concurrency, short prompts:** scheduling and prefill/decode interference. TTFT tail grows first; KV cache stayed under 7% used.
+- **Rising concurrency:** prefill queueing and prefill/decode interference. p95 TTFT breaks at 16–32 users; KV cache stayed under 7%.
 - **Long prompts:** prefill compute. 4096-token prompts miss the TTFT SLO even at concurrency 8.
 - **Constrained KV cache:** capacity, which leads to preemption and recompute (04d).
 
 ## Trade-offs
 
-- **Throughput vs tail latency:** 32 → 64 users gives +52% throughput but 4.4× worse p95 TTFT.
-- **Batch width:** narrow gives fast tokens but long queues; wide gives the opposite (04a).
-- **Chunk budget:** small protects TTFT, large protects steady decode; throughput unchanged (04b).
+- **Throughput vs tail latency:** 16 → 32 users gives +48% throughput but 1.9× worse p95 TTFT.
+- **Batch width:** narrow gives fast tokens and long queues; wide gives the opposite (04a).
+- **Chunk budget:** small gives smooth streaming; large gives better p95 but terrible p99. Throughput is unchanged (04b).
 - **Cache memory:** a smaller KV budget frees memory (e.g. for a bigger model or more replicas per GPU) at the cost of preemptions under load.
 
 ## Limitations
 
-- **One run per point.** The identical config and workload (baseline, 512/128, concurrency 64) gave 2438 tok/s in 02 and 1869 tok/s in 04a: a 23% spread between two L4 containers. Treat differences under ~25% across experiments as noise. Comparisons *within* one experiment share a run window but still ran on separate containers. Next step: 3 repeats per point, report the median.
-- **GPU utilization is not trustworthy here.** nvidia-smi utilization *falls* as concurrency rises because the sampling window includes warm-up and the high-concurrency runs are short (13 s). It also measures "a kernel was running", not SM occupancy. I don't draw conclusions from it.
+- **GPU utilization is not trustworthy here.** nvidia-smi utilization *falls* as concurrency rises because the sampling window includes warm-up and high-concurrency runs are short. It also measures "a kernel was running", not SM occupancy. I don't draw conclusions from it.
 - **Memory numbers are pre-allocated.** vLLM reserves ~90% of GPU memory at startup (~20 GB peak in every default run), so `gpu_mem_peak` doesn't vary with load. KV cache usage % is the meaningful signal.
-- **Workload.** Random-token prompts (no natural-text structure); a single model and GPU type; `--ignore-eos` forces exact output lengths.
-- **Cost.** GPU time only (Modal also bills CPU and memory) at the listed price; container cold start (~2–3 min) is excluded.
+- **Workload.** Random-token prompts (no natural-text structure); one model and one GPU type; `--ignore-eos` forces exact output lengths. Closed-loop load (fixed concurrency), not a Poisson arrival rate.
+- **Warm-up.** vLLM's warm-up re-sends the first measured prompt, so one request per workload is a cache hit (~4% hit rate).
+- **Cost.** GPU time only (Modal also bills CPU and memory) at the listed price. Container cold start (~2–3 min) and the time spent waiting for an L4 are excluded.
 - **Version.** Results depend on vLLM 0.34.0 defaults and kernels.
