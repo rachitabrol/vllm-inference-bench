@@ -2,7 +2,10 @@
 
 Input : directory (or directories) of JSON files written by benchmark/modal_app.py. Each file is
         {"meta": {...}, "bench": <`vllm bench serve --save-result` JSON>, "telemetry": {...}}.
-Output: <out>/summary.csv, <out>/SUMMARY.md, <plots>/*.png
+Output: <out>/summary.csv (one row per individual run), <out>/summary_agg.csv (one row per
+        experiment/config/workload group: medians + spread), <out>/SUMMARY.md, <plots>/*.png
+Repeats: meta.repeat (0..N-1, absent = 0) marks repeated runs of the same point, each from its own
+        container. Tables and plots show medians; spread is min-max and CV (sample std / mean).
 
 Keys read from the vLLM bench JSON (confirmed in vllm 0.34.0 vllm/benchmarks/serve.py):
   completed, failed, duration, request_throughput, output_throughput, total_token_throughput,
@@ -39,12 +42,12 @@ NEUTRAL = "#8a93a3"  # baseline / "does not meet SLO"
 SERIES = ["#2563eb", "#e07a1f", "#1b9e77", "#9b59b6", "#b8860b", "#d6336c"]
 
 COLUMNS = [
-    "run_id", "experiment", "config", "gpu", "vllm_version", "model", "dataset",
+    "run_id", "repeat", "experiment", "config", "gpu", "vllm_version", "model", "dataset",
     "input_len", "output_len", "concurrency", "num_prompts",
     "completed", "failed", "duration_s", "request_throughput", "output_tok_per_s", "total_tok_per_s",
     "ttft_mean_ms", "ttft_p50_ms", "ttft_p95_ms", "ttft_p99_ms",
     "tpot_mean_ms", "tpot_p50_ms", "tpot_p95_ms", "tpot_p99_ms",
-    "itl_p50_ms", "itl_p95_ms", "e2el_p50_ms", "e2el_p95_ms",
+    "itl_p50_ms", "itl_p95_ms", "itl_p99_ms", "e2el_p50_ms", "e2el_p95_ms",
     "gpu_mem_peak_mib", "gpu_util_mean", "kv_cache_usage_peak", "preemptions", "prefix_cache_hit_rate",
     "gpu_price_per_hr", "usd_per_1m_output_tokens", "meets_slo",
     "workload_id",
@@ -156,6 +159,7 @@ def build_row(rec: dict[str, Any], prices: dict[str, float], slo: dict[str, Any]
     ttft95, tpot95 = _num(b, "p95_ttft_ms"), _num(b, "p95_tpot_ms")
     return {
         "run_id": m.get("run_id"),
+        "repeat": int(m.get("repeat") or 0),
         "experiment": m["experiment"],
         "config": m["config"],
         "gpu": m["gpu"],
@@ -182,6 +186,7 @@ def build_row(rec: dict[str, Any], prices: dict[str, float], slo: dict[str, Any]
         "tpot_p99_ms": _num(b, "p99_tpot_ms"),
         "itl_p50_ms": _num(b, "median_itl_ms", "p50_itl_ms"),
         "itl_p95_ms": _num(b, "p95_itl_ms"),
+        "itl_p99_ms": _num(b, "p99_itl_ms"),
         "e2el_p50_ms": _num(b, "median_e2el_ms", "p50_e2el_ms"),
         "e2el_p95_ms": _num(b, "p95_e2el_ms"),
         "gpu_mem_peak_mib": t.get("gpu_mem_peak_mib"),
@@ -205,11 +210,114 @@ def build_dataframe(
     df = pd.DataFrame(rows)
     if df.empty:
         return df
-    # keep the latest run for each (experiment, config, workload, gpu)
-    df = df.sort_values("run_id").drop_duplicates(["experiment", "config", "workload_id", "gpu"], keep="last")
-    return df.sort_values(["experiment", "config", "input_len", "output_len", "concurrency"]).reset_index(
+    # keep the latest run for each (experiment, config, workload, gpu, repeat)
+    df = df.sort_values("run_id").drop_duplicates(
+        ["experiment", "config", "workload_id", "gpu", "repeat"], keep="last"
+    )
+    return df.sort_values(
+        ["experiment", "config", "input_len", "output_len", "concurrency", "repeat"]
+    ).reset_index(drop=True)
+
+
+# ---- repeats: grouping, medians, spread ---------------------------------------------------------
+
+GROUP_KEYS = ["experiment", "config", "gpu", "workload_id"]
+# columns that are medians in the aggregated frame
+MEDIAN_COLS = [
+    "completed", "failed", "duration_s", "request_throughput", "output_tok_per_s", "total_tok_per_s",
+    "ttft_mean_ms", "ttft_p50_ms", "ttft_p95_ms", "ttft_p99_ms",
+    "tpot_mean_ms", "tpot_p50_ms", "tpot_p95_ms", "tpot_p99_ms",
+    "itl_p50_ms", "itl_p95_ms", "itl_p99_ms", "e2el_p50_ms", "e2el_p95_ms",
+    "gpu_mem_peak_mib", "gpu_util_mean", "kv_cache_usage_peak", "preemptions", "prefix_cache_hit_rate",
+    "gpu_price_per_hr",
+]  # fmt: skip
+SPREAD_COLS = ["output_tok_per_s", "ttft_p95_ms"]  # also get min / max / cv_pct
+AGG_COLUMNS = (
+    ["experiment", "config", "gpu", "vllm_version", "model", "dataset", "input_len", "output_len",
+     "concurrency", "num_prompts", "workload_id", "n"]
+    + MEDIAN_COLS
+    + [f"{c}_{s}" for c in SPREAD_COLS for s in ("min", "max", "cv_pct")]
+    + ["usd_per_1m_output_tokens", "meets_slo"]
+)  # fmt: skip
+
+
+def cv_pct(values: pd.Series | list[float]) -> float:
+    """Coefficient of variation in %: sample std (ddof=1) / mean. NaN for n < 2 or mean 0."""
+    v = pd.to_numeric(pd.Series(values), errors="coerce").dropna()
+    if len(v) < 2 or v.mean() == 0:
+        return math.nan
+    return float(v.std(ddof=1) / v.mean() * 100.0)
+
+
+def aggregate(df: pd.DataFrame, slo: dict[str, Any]) -> pd.DataFrame:
+    """One row per (experiment, config, gpu, workload): n, medians, min/max/CV for the key metrics.
+
+    SLO verdict and cost are recomputed from the medians.
+    """
+    rows = []
+    for _, g in df.groupby(GROUP_KEYS, sort=False, dropna=False):
+        first = g.iloc[0]
+        r: dict[str, Any] = {k: first[k] for k in ("experiment", "config", "gpu", "vllm_version", "model",
+                                                    "dataset", "input_len", "output_len", "concurrency",
+                                                    "num_prompts", "workload_id")}  # fmt: skip
+        r["n"] = len(g)
+        for c in MEDIAN_COLS:
+            r[c] = float(pd.to_numeric(g[c], errors="coerce").median()) if c in g else math.nan
+        for c in SPREAD_COLS:
+            v = pd.to_numeric(g[c], errors="coerce")
+            r[f"{c}_min"], r[f"{c}_max"], r[f"{c}_cv_pct"] = float(v.min()), float(v.max()), cv_pct(v)
+        r["usd_per_1m_output_tokens"] = usd_per_1m_output_tokens(r["gpu_price_per_hr"], r["output_tok_per_s"])
+        err = error_rate(r["completed"], r["failed"])
+        r["meets_slo"] = meets_slo(r["ttft_p95_ms"], r["tpot_p95_ms"], err, slo)
+        r["_config_values"] = first["_config_values"]
+        r["_fixture"] = bool(g["_fixture"].any())
+        r["_tput_txt"] = _median_range_text(r["n"], r["output_tok_per_s"], r["output_tok_per_s_min"],
+                                            r["output_tok_per_s_max"])  # fmt: skip
+        rows.append(r)
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+    return out.sort_values(["experiment", "config", "input_len", "output_len", "concurrency"]).reset_index(
         drop=True
     )
+
+
+def _median_range_text(n: int, med: float, lo: float, hi: float) -> str:
+    if n <= 1 or any(math.isnan(x) for x in (med, lo, hi)):
+        return _fmt(med, 0)
+    return f"{med:.0f} ({lo:.0f}\u2013{hi:.0f})"
+
+
+def cross_experiment_groups(df: pd.DataFrame) -> list[dict[str, Any]]:
+    """Points with an identical config + workload (incl. num_prompts) that appear in more than one
+    experiment (e.g. 02 and 04a baseline c64). Pools all their runs and reports the combined spread."""
+    if df.empty:
+        return []
+    key = ["config", "gpu", "workload_id", "num_prompts"]
+    out = []
+    for _, g in df.groupby(key, dropna=False):
+        exps = sorted(g["experiment"].unique())
+        if len(exps) < 2:
+            continue
+        t = pd.to_numeric(g["output_tok_per_s"], errors="coerce")
+        per = {e: float(t[g["experiment"] == e].median()) for e in exps}
+        meds = list(per.values())
+        out.append(
+            {
+                "config": g["config"].iloc[0],
+                "workload_id": g["workload_id"].iloc[0],
+                "experiments": exps,
+                "per_experiment_median": per,
+                "n": len(g),
+                "median": float(t.median()),
+                "min": float(t.min()),
+                "max": float(t.max()),
+                "cv_pct": cv_pct(t),
+                "ttft_p95_cv_pct": cv_pct(g["ttft_p95_ms"]),
+                "median_gap_pct": (max(meds) - min(meds)) / min(meds) * 100.0 if min(meds) else math.nan,
+            }
+        )
+    return out
 
 
 # ---- experiment 05 -----------------------------------------------------------------------------
@@ -249,6 +357,15 @@ def _slo_line(ax: plt.Axes, y: float, label: str, horizontal: bool = True) -> No
                     color=SLO_COLOR, fontsize=8, rotation=90)  # fmt: skip
 
 
+def _yerr(d: pd.DataFrame, col: str) -> list[list[float]] | None:
+    """Asymmetric (median - min, max - median) error bars for `col`; None when every point has n == 1."""
+    if "n" not in d or f"{col}_min" not in d or not (d["n"] > 1).any():
+        return None
+    lo = (d[col] - d[f"{col}_min"]).fillna(0).clip(lower=0)
+    hi = (d[f"{col}_max"] - d[col]).fillna(0).clip(lower=0)
+    return [lo.tolist(), hi.tolist()]
+
+
 def plot_02(df: pd.DataFrame, slo: dict, plots: Path, fixture: bool) -> list[Path]:
     d = df[df["experiment"] == "02"].sort_values("concurrency")
     if d.empty:
@@ -257,7 +374,11 @@ def plot_02(df: pd.DataFrame, slo: dict, plots: Path, fixture: bool) -> list[Pat
     x = d["concurrency"]
 
     fig, axes = plt.subplots(1, 2, figsize=(10, 4))
-    axes[0].plot(x, d["output_tok_per_s"], marker="o", color=SERIES[0])
+    yerr = _yerr(d, "output_tok_per_s")
+    if yerr:
+        axes[0].errorbar(x, d["output_tok_per_s"], yerr=yerr, marker="o", color=SERIES[0], capsize=3)
+    else:
+        axes[0].plot(x, d["output_tok_per_s"], marker="o", color=SERIES[0])
     axes[0].set_ylabel("Output throughput (tokens/s)")
     axes[1].plot(x, d["request_throughput"], marker="o", color=SERIES[1])
     axes[1].set_ylabel("Request throughput (requests/s)")
@@ -278,7 +399,12 @@ def plot_02(df: pd.DataFrame, slo: dict, plots: Path, fixture: bool) -> list[Pat
         (axes[1], "tpot", "TPOT", slo["p95_tpot_ms"]),
     ):
         ax.plot(x, d[f"{metric}_p50_ms"], marker="o", color=SERIES[0], label="p50")
-        ax.plot(x, d[f"{metric}_p95_ms"], marker="s", color=SERIES[1], label="p95")
+        yerr = _yerr(d, "ttft_p95_ms") if metric == "ttft" else None
+        if yerr:
+            ax.errorbar(x, d[f"{metric}_p95_ms"], yerr=yerr, marker="s", color=SERIES[1], label="p95",
+                        capsize=3)  # fmt: skip
+        else:
+            ax.plot(x, d[f"{metric}_p95_ms"], marker="s", color=SERIES[1], label="p95")
         _slo_line(ax, lim, f"SLO: p95 {name} <= {lim:g} ms")
         ax.set_xscale("log", base=2)
         ax.set_xticks(list(x))
@@ -382,7 +508,9 @@ def plot_04(df: pd.DataFrame, slo: dict, plots: Path, fixture: bool) -> list[Pat
         fig, axes = plt.subplots(1, 4, figsize=(15, 4))
         for ax, (col, ylabel, slo_line) in zip(axes, panels, strict=True):
             vals = pd.to_numeric(d[col], errors="coerce").fillna(0)
-            ax.bar(range(len(d)), vals, color=colors, width=0.6)
+            yerr = _yerr(d, col) if col in SPREAD_COLS else None
+            ax.bar(range(len(d)), vals, color=colors, width=0.6, yerr=yerr,
+                   error_kw={"ecolor": INK, "capsize": 3, "elinewidth": 1.2})  # fmt: skip
             ax.set_xticks(range(len(d)))
             ax.set_xticklabels(labels, fontsize=8)
             ax.set_ylabel(ylabel)
@@ -449,15 +577,65 @@ def md_table(df: pd.DataFrame, cols: list[tuple[str, str, int]]) -> str:
     return "\n".join(lines)
 
 
-def build_summary_md(df: pd.DataFrame, slo: dict, prices_checked: str | None) -> str:
+def variance_section(runs: pd.DataFrame, agg: pd.DataFrame) -> list[str]:
+    out = ["## Run-to-run variance", ""]
+    if (agg["n"] > 1).any():
+        out += [
+            "One row per (experiment, config, workload); each repeat ran in its own container. "
+            "CV = sample std / mean.",
+            "",
+        ]
+    else:
+        out += ["Only one run per point (n=1): no spread can be computed.", ""]
+    cols = [
+        ("experiment", "exp", 0), ("config", "config", 0), ("workload_id", "workload", 0), ("n", "n", 0),
+        ("output_tok_per_s", "tok/s median", 0), ("output_tok_per_s_min", "min", 0),
+        ("output_tok_per_s_max", "max", 0), ("output_tok_per_s_cv_pct", "CV %", 1),
+        ("ttft_p95_ms_cv_pct", "p95 TTFT CV %", 1),
+    ]  # fmt: skip
+    out += [md_table(agg, cols), ""]
+    cvs = agg[agg["n"] > 1]
+    if cvs.empty:
+        out += ["Throughput CV across groups: n/a (n=1).", ""]
+    else:
+        t, f = cvs["output_tok_per_s_cv_pct"], cvs["ttft_p95_ms_cv_pct"]
+        out += [
+            f"Throughput CV across {len(cvs)} groups: max {t.max():.1f}%, median {t.median():.1f}%. "
+            f"p95 TTFT CV: max {f.max():.1f}%, median {f.median():.1f}%.",
+            "",
+        ]
+    out += ["### Same config + workload in different experiments", ""]
+    cross = cross_experiment_groups(runs)
+    if not cross:
+        out += ["No identical config + workload appears in more than one experiment.", ""]
+    for c in cross:
+        per = "; ".join(f"{e}: {v:.0f} tok/s" for e, v in c["per_experiment_median"].items())
+        out += [
+            f"- `{c['config']}` {c['workload_id']} in experiments {', '.join(c['experiments'])} "
+            f"(per-experiment medians {per}; gap {c['median_gap_pct']:.1f}%). "
+            f"Pooled n={c['n']}: median {c['median']:.0f}, min {c['min']:.0f}, max {c['max']:.0f} tok/s, "
+            f"CV {_fmt(c['cv_pct'])}%, p95 TTFT CV {_fmt(c['ttft_p95_cv_pct'])}%.",
+        ]
+    out += [""]
+    return out
+
+
+def build_summary_md(
+    df: pd.DataFrame, slo: dict, prices_checked: str | None, runs: pd.DataFrame | None = None
+) -> str:
+    """`df` = aggregated frame (one row per group, see aggregate()); `runs` = per-run frame."""
     fixture = bool(df["_fixture"].any())
+    if runs is None:
+        runs = df.assign(repeat=0)
     gpus = ", ".join(sorted(df["gpu"].unique()))
     versions = ", ".join(sorted(map(str, df["vllm_version"].dropna().unique())))
     out: list[str] = ["# Benchmark summary", ""]
     if fixture:
         out += ["> **FIXTURE DATA - NOT REAL RESULTS.** Generated from test fixtures.", ""]
     out += [
-        f"- Runs: {', '.join(sorted(map(str, df['run_id'].dropna().unique())))}",
+        f"- Runs: {', '.join(sorted(map(str, runs['run_id'].dropna().unique())))}",
+        f"- Repeats: n = {int(df['n'].min())}..{int(df['n'].max())} runs per point (tables show medians; "
+        "throughput as median (min\u2013max) when n>1)",
         f"- GPU: {gpus}  |  vLLM: {versions}",
         f"- Model(s): {', '.join(sorted(map(str, df['model'].dropna().unique())))}",
         f"- SLO: p95 TTFT <= {slo['p95_ttft_ms']:g} ms, p95 TPOT <= {slo['p95_tpot_ms']:g} ms, "
@@ -468,16 +646,18 @@ def build_summary_md(df: pd.DataFrame, slo: dict, prices_checked: str | None) ->
         "",
     ]
     common = [
-        ("config", "config", 0), ("concurrency", "conc", 0), ("input_len", "in", 0), ("output_len", "out", 0),
-        ("output_tok_per_s", "out tok/s", 0), ("request_throughput", "req/s", 2),
+        ("config", "config", 0), ("n", "n", 0), ("concurrency", "conc", 0),
+        ("input_len", "in", 0), ("output_len", "out", 0),
+        ("_tput_txt", "out tok/s", 0), ("request_throughput", "req/s", 2),
         ("ttft_p50_ms", "TTFT p50", 0), ("ttft_p95_ms", "TTFT p95", 0),
         ("tpot_p50_ms", "TPOT p50", 1), ("tpot_p95_ms", "TPOT p95", 1),
         ("e2el_p95_ms", "E2E p95", 0), ("failed", "failed", 0),
         ("usd_per_1m_output_tokens", "$/1M out", 3), ("meets_slo", "SLO", 0),
     ]  # fmt: skip
     extra = {
+        "03": [("itl_p99_ms", "ITL p99", 1)],
         "04a": [("gpu_util_mean", "GPU util %", 0), ("kv_cache_usage_peak", "KV peak %", 0)],
-        "04b": [("itl_p95_ms", "ITL p95", 1)],
+        "04b": [("itl_p95_ms", "ITL p95", 1), ("itl_p99_ms", "ITL p99", 1)],
         "04c": [("prefix_cache_hit_rate", "prefix hit rate", 2)],
         "04d": [("kv_cache_usage_peak", "KV peak %", 0), ("preemptions", "preemptions", 0)],
     }
@@ -507,11 +687,13 @@ def build_summary_md(df: pd.DataFrame, slo: dict, prices_checked: str | None) ->
             f"Best config meeting the SLO (max output tok/s = min $/1M tokens): "
             f"**{best['config']}** at concurrency **{int(best['concurrency'])}** "
             f"(experiment {best['experiment']}, {best['gpu']}): "
-            f"{best['output_tok_per_s']:.0f} output tok/s, p95 TTFT {best['ttft_p95_ms']:.0f} ms, "
+            f"{best['output_tok_per_s']:.0f} output tok/s (median of n={int(best['n'])}), "
+            f"p95 TTFT {best['ttft_p95_ms']:.0f} ms, "
             f"p95 TPOT {best['tpot_p95_ms']:.1f} ms, "
             f"**${best['usd_per_1m_output_tokens']:.3f} per 1M output tokens**.",
             "",
         ]
+    out += variance_section(runs, df)
     return "\n".join(out)
 
 
@@ -532,14 +714,16 @@ def run(
     if not recs:
         raise SystemExit(f"no result JSON (with meta+bench) found in {[str(p) for p in inputs]}")
     df = build_dataframe(recs, prices, slo)
+    agg = aggregate(df, slo)
     fixture = bool(df["_fixture"].any())
 
     _style()
     out_dir.mkdir(parents=True, exist_ok=True)
     df[COLUMNS].to_csv(out_dir / "summary.csv", index=False)
+    agg[AGG_COLUMNS].to_csv(out_dir / "summary_agg.csv", index=False)
     for fn in (plot_02, plot_03, plot_04, plot_05):
-        fn(df, slo, plots_dir, fixture)
-    (out_dir / "SUMMARY.md").write_text(build_summary_md(df, slo, prices_doc.get("checked")) + "\n")
+        fn(agg, slo, plots_dir, fixture)
+    (out_dir / "SUMMARY.md").write_text(build_summary_md(agg, slo, prices_doc.get("checked"), df) + "\n")
     return df
 
 
@@ -552,7 +736,7 @@ def main() -> None:
     ap.add_argument("--prices", type=Path, default=None)
     a = ap.parse_args()
     df = run(a.inputs, a.out, a.plots, a.slo, a.prices)
-    print(f"{len(df)} rows -> {a.out}/summary.csv, {a.out}/SUMMARY.md, plots in {a.plots}/")
+    print(f"{len(df)} rows -> {a.out}/summary.csv + summary_agg.csv + SUMMARY.md, plots in {a.plots}/")
 
 
 if __name__ == "__main__":

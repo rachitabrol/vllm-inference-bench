@@ -31,13 +31,13 @@ HF weights cached in Modal Volume `vllm-bench-hf-cache`.
 
 ## Run it
 
-**Actions UI:** Actions > benchmark > Run workflow. Inputs: `experiments` (`all`, or `01,02`, or `04`), `gpu` (`L4` | `A100-40GB` | `A10G` | `H100`), `smoke` (default true).
+**Actions UI:** Actions > benchmark > Run workflow. Inputs: `experiments` (`all`, or `01,02`, or `04`), `gpu` (`L4` | `A100-40GB` | `A10G` | `H100`), `smoke` (default true), `repeats` (default 3; each repeat runs in its own container; smoke forces 1).
 
 **Locally with Modal** (needs `pip install -r requirements.txt` and `modal setup`):
 
 ```bash
 modal run benchmark/modal_app.py --smoke                                  # cents, validates the pipeline
-modal run benchmark/modal_app.py --experiments all --gpu L4 --no-smoke   # full run
+modal run benchmark/modal_app.py --experiments all --gpu L4 --no-smoke --repeats 3   # full run
 python analysis/analyze.py results/raw/<run_id>                          # summary.csv, SUMMARY.md, plots/
 ```
 

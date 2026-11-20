@@ -102,7 +102,8 @@ def run_config(job: dict[str, Any], run_id: str, gpu: str, print_help: bool = Fa
         hf_cache.commit()  # persist downloaded weights for later containers
 
         for wl in job["workloads"]:
-            fname = f"{job['experiment']}_{job['config_name']}_{wl['id']}.json"
+            rep = job.get("repeat", 0)
+            fname = cfgmod.result_filename(job["experiment"], job["config_name"], wl["id"], rep)
             cmd = build_bench_command(model, wl, str(out_dir), fname, PORT)
             print("BENCH:", " ".join(cmd))
             t0 = time.time()
@@ -145,6 +146,7 @@ def run_config(job: dict[str, Any], run_id: str, gpu: str, print_help: bool = Fa
         "vllm_version": vllm_version,
         "model": model,
         "smoke": job.get("smoke", False),
+        "repeat": job.get("repeat", 0),
         "total_s": time.time() - t_start,
         "server_log_tail": log_tail,
         "help": {"serve": serve_help, "bench": bench_help} if print_help else None,
@@ -164,6 +166,7 @@ def _write_results(run_dir: Path, result: dict[str, Any]) -> int:
         "vllm_version": result["vllm_version"],
         "model": result["model"],
         "smoke": result["smoke"],
+        "repeat": result.get("repeat", 0),
         "serve_command": result["serve_command"],
     }
     for rec in result["records"]:
@@ -179,19 +182,22 @@ def _write_results(run_dir: Path, result: dict[str, Any]) -> int:
         n += 1
     log = run_dir / "logs"
     log.mkdir(exist_ok=True)
-    tail_name = f"{result['experiment']}_{result['config_name']}_server_tail.log"
+    tail_name = f"{result['experiment']}_{result['config_name']}_r{result.get('repeat', 0)}_server_tail.log"
     (log / tail_name).write_text(result["server_log_tail"])
     return n
 
 
 @app.local_entrypoint()
-def main(experiments: str = "all", gpu: str = "L4", smoke: bool = False, run_id: str = "") -> None:
+def main(
+    experiments: str = "all", gpu: str = "L4", smoke: bool = False, run_id: str = "", repeats: int = 3
+) -> None:
     if gpu not in GPU_CHOICES:
         raise SystemExit(f"--gpu must be one of {GPU_CHOICES}")
     run_id = run_id or time.strftime("%Y%m%d-%H%M%S") + f"-{gpu}" + ("-smoke" if smoke else "")
-    jobs = cfgmod.build_jobs(experiments, smoke=smoke)
+    jobs = cfgmod.expand_repeats(cfgmod.build_jobs(experiments, smoke=smoke), repeats, smoke=smoke)
     n_bench = sum(len(j["workloads"]) for j in jobs)
-    print(f"run_id={run_id} gpu={gpu} smoke={smoke}: {len(jobs)} servers, {n_bench} bench runs")
+    n_rep = 1 if smoke else repeats
+    print(f"run_id={run_id} gpu={gpu} smoke={smoke} repeats={n_rep}: {len(jobs)} servers, {n_bench} runs")
 
     run_dir = Path("results/raw") / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -219,9 +225,8 @@ def main(experiments: str = "all", gpu: str = "L4", smoke: bool = False, run_id:
                 (run_dir / f"help_{kind}.txt").write_text(text)
         written += _write_results(run_dir, result)
     print(f"wrote {written} result files to {run_dir} ({failures} job failures)")
-    (run_dir / "RUN_INFO.json").write_text(
-        json.dumps({"run_id": run_id, "gpu": gpu, "smoke": smoke, "experiments": experiments}, indent=2)
-    )
+    info = {"run_id": run_id, "gpu": gpu, "smoke": smoke, "experiments": experiments, "repeats": n_rep}
+    (run_dir / "RUN_INFO.json").write_text(json.dumps(info, indent=2))
     if failures or written == 0:
         raise SystemExit(1)
 

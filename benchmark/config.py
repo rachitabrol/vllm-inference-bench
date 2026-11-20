@@ -241,3 +241,19 @@ def _smoke_workloads(workloads: list[Workload], smoke_cfg: dict[str, Any]) -> li
             seen.add(sw.id)
             out.append(sw)
     return out
+
+
+def expand_repeats(jobs: list[dict[str, Any]], repeats: int, smoke: bool = False) -> list[dict[str, Any]]:
+    """Expand each job into `repeats` independent jobs (one container each), tagged with `repeat` 0..N-1.
+
+    Smoke forces repeats=1. Order: repeat-major, so a partial run still covers every config once.
+    """
+    n = 1 if smoke else int(repeats)
+    if n < 1:
+        raise ValueError(f"repeats must be >= 1, got {repeats}")
+    return [{**j, "repeat": i} for i in range(n) for j in jobs]
+
+
+def result_filename(experiment: str, config_name: str, workload_id: str, repeat: int = 0) -> str:
+    """Per-workload result file name; `_r{repeat}` keeps repeats of one point apart."""
+    return f"{experiment}_{config_name}_{workload_id}_r{repeat}.json"

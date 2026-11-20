@@ -16,6 +16,10 @@ on:
         description: "Smoke test: 0.5B model, 20 prompts, concurrency 1+4, experiments 01+02 only (cents)"
         type: boolean
         default: true
+      repeats:
+        description: "Repeats per job (each in its own container; ignored = 1 in smoke mode)"
+        type: string
+        default: "3"
 
 permissions:
   contents: write
@@ -28,13 +32,14 @@ concurrency:
 jobs:
   benchmark:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 240
     env:
       MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
       MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
       EXPERIMENTS: ${{ inputs.experiments }}
       GPU: ${{ inputs.gpu }}
       SMOKE: ${{ inputs.smoke }}
+      REPEATS: ${{ inputs.repeats }}
     steps:
       - name: Fail loudly if Modal secrets are missing
         run: |
@@ -58,7 +63,7 @@ jobs:
           RUN_ID="${{ github.run_id }}-${{ github.run_attempt }}-${GPU}"
           if [ "$SMOKE" = "true" ]; then RUN_ID="${RUN_ID}-smoke"; SMOKE_FLAG="--smoke"; else SMOKE_FLAG="--no-smoke"; fi
           echo "RUN_ID=${RUN_ID}" >> "$GITHUB_ENV"
-          modal run benchmark/modal_app.py --experiments "$EXPERIMENTS" --gpu "$GPU" $SMOKE_FLAG --run-id "$RUN_ID"
+          modal run benchmark/modal_app.py --experiments "$EXPERIMENTS" --gpu "$GPU" $SMOKE_FLAG --repeats "${REPEATS:-3}" --run-id "$RUN_ID"
 
       - name: Analyze
         run: python analysis/analyze.py "results/raw/${RUN_ID}"
@@ -84,7 +89,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add results plots
+          git add results plots  # includes summary.csv and summary_agg.csv
           git commit -m "results: ${RUN_ID}" || { echo "nothing to commit"; exit 0; }
           git pull --rebase origin "${GITHUB_REF_NAME}"
           git push origin "HEAD:${GITHUB_REF_NAME}"

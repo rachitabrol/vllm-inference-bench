@@ -118,3 +118,32 @@ def test_prefix_workload_fields():
     assert w["dataset"] == "prefix_repetition"
     assert (w["prefix_len"], w["suffix_len"], w["output_len"], w["concurrency"]) == (1024, 128, 128, 16)
     assert w["input_len"] == 1152
+
+
+def test_expand_repeats_one_container_per_repeat():
+    jobs = C.build_jobs("01,02")
+    out = C.expand_repeats(jobs, 3)
+    assert len(out) == 3 * len(jobs)
+    for j in jobs:
+        same = [x for x in out if (x["experiment"], x["config_name"]) == (j["experiment"], j["config_name"])]
+        reps = [x["repeat"] for x in same]
+        assert sorted(reps) == [0, 1, 2]
+    assert all("repeat" not in j for j in jobs)  # inputs not mutated
+    assert len(C.build_jobs("all")) * 3 == len(C.expand_repeats(C.build_jobs("all"), 3)) == 39
+
+
+def test_smoke_forces_one_repeat():
+    jobs = C.build_jobs("all", smoke=True)
+    out = C.expand_repeats(jobs, 5, smoke=True)
+    assert len(out) == len(jobs) and {j["repeat"] for j in out} == {0}
+
+
+def test_repeats_must_be_positive():
+    with pytest.raises(ValueError):
+        C.expand_repeats(C.build_jobs("01"), 0)
+
+
+def test_result_filename_suffix():
+    name = C.result_filename("02", "baseline", "in512_out128_c64", 2)
+    assert name == "02_baseline_in512_out128_c64_r2.json"
+    assert C.result_filename("02", "baseline", "in512_out128_c64").endswith("_r0.json")
