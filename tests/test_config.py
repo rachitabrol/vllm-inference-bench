@@ -15,7 +15,7 @@ VARIANTS = sorted(
 
 def test_baseline_is_fully_explicit():
     cfg = C.load_config("baseline")
-    for key in C.SERVE_FLAGS:
+    for key in set(C.SERVE_FLAGS) - C.OPTIONAL_SERVE_KEYS:
         assert key in cfg, f"baseline must set {key} explicitly (vLLM defaults drift)"
     assert cfg["model"] == "Qwen/Qwen2.5-1.5B-Instruct"
     assert cfg["dtype"] == "bfloat16"
@@ -61,7 +61,7 @@ def test_each_variant_differs_from_baseline_in_exactly_one_flag(name):
 def test_variant_list_is_what_we_expect():
     assert set(VARIANTS) == {
         "max_seqs_8", "max_seqs_32", "batched_tokens_512", "batched_tokens_8192",
-        "no_prefix_cache", "gpu_util_050",
+        "no_prefix_cache", "kv_cache_2gib",
     }  # fmt: skip
 
 

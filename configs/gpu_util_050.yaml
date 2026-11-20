@@ -1,3 +1,0 @@
-name: gpu_util_050
-base: baseline
-gpu_memory_utilization: 0.50

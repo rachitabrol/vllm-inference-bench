@@ -22,6 +22,7 @@ REQUIRED_BENCH_FLAGS = [
     "--max-concurrency",
     "--num-warmups",
     "--ignore-eos",
+    "--temperature",
     "--save-result",
     "--result-dir",
     "--result-filename",
@@ -43,6 +44,7 @@ REQUIRED_SERVE_FLAGS = [
     "--dtype",
     "--max-model-len",
     "--gpu-memory-utilization",
+    "--kv-cache-memory-bytes",
     "--max-num-seqs",
     "--max-num-batched-tokens",
     "--enable-prefix-caching",
@@ -61,7 +63,9 @@ def build_bench_command(
     """Return the argv for one measured run.
 
     `--ignore-eos` is passed explicitly so every request generates exactly output_len tokens,
-    regardless of dataset. Warm-up requests are sent by vLLM itself (`--num-warmups`) and are
+    regardless of dataset. `--temperature 0` pins greedy decoding (vLLM bench
+    no longer sends it by default), so runs are reproducible.
+    Warm-up requests are sent by vLLM itself (`--num-warmups`) and are
     not part of the measured window.
     """
     ds = workload["dataset"]
@@ -84,6 +88,8 @@ def build_bench_command(
         "--num-warmups",
         str(workload["warmup_requests"]),
         "--ignore-eos",
+        "--temperature",
+        "0",
     ]
     if ds == "random":
         cmd += [

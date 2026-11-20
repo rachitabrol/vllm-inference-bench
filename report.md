@@ -73,7 +73,7 @@
 
 ## 04d KV cache capacity
 
-**What we measured:** `--gpu-memory-utilization` 0.5 vs 0.9 at concurrency 64 with 1024-token inputs; KV cache usage and preemption count.
+**What we measured:** a fixed 2 GiB KV cache (`--kv-cache-memory-bytes`, ~75k tokens) vs the default (~90% of GPU memory) at concurrency 64 with 1024-token inputs and 512-token outputs (~98k tokens of demand); KV cache usage and preemption count. A byte budget keeps the experiment GPU-independent, unlike `--gpu-memory-utilization`.
 
 **Result (TODO):** TODO (check whether preemptions actually occurred; see Limitations).
 
@@ -103,6 +103,6 @@ TODO - latency vs throughput vs cost; chunk size vs TTFT/ITL; cache memory vs we
 
 - Single model, single GPU, one seed; random token prompts (not natural text), so no real-world prefix structure except in 04c.
 - Cost counts GPU time only (Modal bills CPU and memory separately), at the price checked on the date above; container cold start is excluded.
-- Small model: KV cache per token is small, so 04d may not reach cache exhaustion at gpu_memory_utilization 0.5 on large-memory GPUs. Report the observed preemption count rather than assuming.
+- 04d sizes demand (~98k tokens) above a 2 GiB budget (~75k tokens, from ~28 KiB/token for this model). If no preemptions show up, report that and check the per-token KV estimate.
 - Telemetry sampling (0.5 s) includes the warm-up window; counters are deltas over the run.
 - Results depend on vLLM 0.34.0 defaults and kernels; do not extrapolate to other versions or models.

@@ -58,7 +58,7 @@ Workload default: input 512, output 128, `num-prompts` 200 (≥ 4× concurrency)
 | 04a max_num_seqs | batch size cap (continuous batching width) | `max_seqs_8`, `max_seqs_32`, `baseline` (default 256) | concurrency 64 |
 | 04b chunked prefill budget | `--max-num-batched-tokens` 512 vs 2048 vs 8192 | 3 configs | long input (4096) mixed w/ concurrency 16 |
 | 04c prefix caching | `--enable-prefix-caching` vs `--no-enable-prefix-caching` | 2 configs | shared-prefix workload (prefix 1024, unique suffix 128, output 128), concurrency 16 |
-| 04d KV cache capacity | `--gpu-memory-utilization` 0.5 vs 0.9 | 2 configs | concurrency 64, input 1024 → watch preemptions |
+| 04d KV cache capacity | `--kv-cache-memory-bytes` 2 GiB vs default (gpu util 0.9) | 2 configs | concurrency 64, input 1024, output 512 → ~98k tokens demand vs ~75k capacity → preemptions |
 | 05 cost/perf | analysis only, no new runs | — | uses 02 + 04 results |
 
 Rule: each 04 config differs from `baseline` in exactly ONE flag. Baseline flags written explicitly (don't rely on vLLM defaults, they change).

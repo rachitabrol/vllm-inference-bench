@@ -55,7 +55,7 @@ VARIANT_KEY = {
     "04a": ("max_num_seqs", "max_num_seqs"),
     "04b": ("max_num_batched_tokens", "max_num_batched_tokens"),
     "04c": ("enable_prefix_caching", "prefix caching"),
-    "04d": ("gpu_memory_utilization", "gpu_memory_utilization"),
+    "04d": ("kv_cache_memory_bytes", "KV cache budget"),
 }
 
 
@@ -488,7 +488,7 @@ def build_summary_md(df: pd.DataFrame, slo: dict, prices_checked: str | None) ->
         "04a": "04a max_num_seqs",
         "04b": "04b max_num_batched_tokens",
         "04c": "04c Prefix caching",
-        "04d": "04d KV cache capacity (gpu_memory_utilization)",
+        "04d": "04d KV cache capacity (kv_cache_memory_bytes)",
     }
     for exp in sorted(df["experiment"].unique()):
         d = df[df["experiment"] == exp]

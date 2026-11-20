@@ -21,12 +21,16 @@ SERVE_FLAGS: dict[str, str] = {
     "dtype": "--dtype",
     "max_model_len": "--max-model-len",
     "gpu_memory_utilization": "--gpu-memory-utilization",
+    "kv_cache_memory_bytes": "--kv-cache-memory-bytes",
     "max_num_seqs": "--max-num-seqs",
     "max_num_batched_tokens": "--max-num-batched-tokens",
     "enable_prefix_caching": "--enable-prefix-caching",
     "enable_chunked_prefill": "--enable-chunked-prefill",
     "seed": "--seed",
 }
+# Engine flags that baseline deliberately leaves unset (vLLM then sizes the KV cache from
+# gpu_memory_utilization). Only variants set them.
+OPTIONAL_SERVE_KEYS = {"kv_cache_memory_bytes"}
 # keys that are not engine flags
 META_KEYS = {"name", "base", "model"}
 

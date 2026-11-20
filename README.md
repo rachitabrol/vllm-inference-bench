@@ -55,7 +55,7 @@ Default workload: 512 input / 128 output tokens, random dataset, seed 42, `--ign
 | 04a | Continuous-batching width | `--max-num-seqs` 8 / 32 / 256 | concurrency 64 |
 | 04b | Chunked-prefill budget | `--max-num-batched-tokens` 512 / 2048 / 8192 | 4096-token inputs, concurrency 16 |
 | 04c | Prefix caching | `--enable-prefix-caching` vs `--no-enable-prefix-caching` | shared 1024-token prefix + 128 suffix, concurrency 16 |
-| 04d | KV cache capacity | `--gpu-memory-utilization` 0.5 / 0.9 | 1024-token inputs, concurrency 64 |
+| 04d | KV cache capacity | `--kv-cache-memory-bytes` 2 GiB vs default (≈90% of GPU) | 1024 in / 512 out, concurrency 64 |
 | 05 | Cheapest config that meets the SLO | analysis only | uses 02 + 04 |
 
 SLO (`configs/slo.yaml`): p95 TTFT <= 500 ms, p95 TPOT <= 50 ms, zero failed requests.

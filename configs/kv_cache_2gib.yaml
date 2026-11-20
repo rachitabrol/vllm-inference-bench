@@ -1,0 +1,5 @@
+name: kv_cache_2gib
+base: baseline
+# Fixed 2 GiB KV cache (~75k tokens for Qwen2.5-1.5B at ~28 KiB/token), independent of GPU size.
+# 04d demand: 64 concurrent x (1024 in + 512 out) ~= 98k tokens -> cache must fill -> preemptions.
+kv_cache_memory_bytes: 2147483648

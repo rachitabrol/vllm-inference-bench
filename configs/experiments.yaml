@@ -49,10 +49,10 @@ experiments:
       - {dataset: prefix_repetition, prefix_len: 1024, suffix_len: 128, num_prefixes: 1, output_len: 128, concurrency: 16}
 
   "04d":
-    title: KV cache capacity (gpu_memory_utilization)
-    configs: [gpu_util_050, baseline]
+    title: KV cache capacity (kv_cache_memory_bytes)
+    configs: [kv_cache_2gib, baseline]
     workloads:
-      - {concurrency: 64, input_len: 1024}
+      - {concurrency: 64, input_len: 1024, output_len: 512}
 
 # 05 (cost/perf) has no runs: analysis only, built from 02 + 04 results.
 
