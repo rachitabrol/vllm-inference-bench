@@ -1,0 +1,3 @@
+name: max_seqs_8
+base: baseline
+max_num_seqs: 8

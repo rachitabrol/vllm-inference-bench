@@ -1,0 +1,11 @@
+# Modal GPU price, USD per hour. Source: https://modal.com/pricing, checked 2026-11-20.
+# The pricing page lists per-second rates (e.g. L4 0.000222 $/s); multiplied by 3600 here.
+# Modal bills CPU and memory separately; those are NOT included in the cost math (see report Limitations).
+# Re-check before publishing numbers: prices change.
+checked: "2026-11-20"
+gpu_usd_per_hour:
+  T4: 0.59
+  L4: 0.80
+  A10G: 1.10       # Modal's page lists "A10"; same tier
+  A100-40GB: 2.10
+  H100: 3.95

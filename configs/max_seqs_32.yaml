@@ -1,0 +1,3 @@
+name: max_seqs_32
+base: baseline
+max_num_seqs: 32

@@ -1,0 +1,63 @@
+# Experiment matrix: experiment id -> configs x workloads.
+# Each (experiment, config) pair runs in its own fresh container with a fresh `vllm serve`.
+# Quote the ids: unquoted 01 would parse as an integer.
+defaults:
+  dataset: random
+  input_len: 512
+  output_len: 128
+  seed: 42
+  warmup_requests: 10        # sent via `vllm bench serve --num-warmups`, discarded
+  min_prompts: 200
+  prompts_per_concurrency: 4 # num_prompts = max(min_prompts, 4 * concurrency) unless set explicitly
+
+experiments:
+  "01":
+    title: baseline single-user latency profile
+    configs: [baseline]
+    workloads:
+      - {concurrency: 1, num_prompts: 50}
+
+  "02":
+    title: throughput vs latency across concurrency
+    configs: [baseline]
+    workloads:
+      - sweep: {concurrency: [1, 4, 8, 16, 32, 64]}
+
+  "03":
+    title: prefill vs decode (input vs output length)
+    configs: [baseline]
+    workloads:
+      - concurrency: 8
+        sweep: {input_len: [128, 1024, 4096], output_len: [64, 512]}
+
+  "04a":
+    title: max_num_seqs (continuous batching width)
+    configs: [max_seqs_8, max_seqs_32, baseline]
+    workloads:
+      - {concurrency: 64}
+
+  "04b":
+    title: max_num_batched_tokens (chunked prefill budget)
+    configs: [batched_tokens_512, baseline, batched_tokens_8192]
+    workloads:
+      - {concurrency: 16, input_len: 4096}
+
+  "04c":
+    title: prefix caching on vs off (shared-prefix workload)
+    configs: [no_prefix_cache, baseline]
+    workloads:
+      - {dataset: prefix_repetition, prefix_len: 1024, suffix_len: 128, num_prefixes: 1, output_len: 128, concurrency: 16}
+
+  "04d":
+    title: KV cache capacity (gpu_memory_utilization)
+    configs: [gpu_util_050, baseline]
+    workloads:
+      - {concurrency: 64, input_len: 1024}
+
+# 05 (cost/perf) has no runs: analysis only, built from 02 + 04 results.
+
+smoke:
+  model: Qwen/Qwen2.5-0.5B-Instruct
+  experiments: ["01", "02"]
+  num_prompts: 20
+  concurrency: [1, 4]

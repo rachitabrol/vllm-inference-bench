@@ -1,0 +1,4 @@
+# Latency SLO used for experiment 05 and the SLO lines on plots.
+p95_ttft_ms: 500
+p95_tpot_ms: 50
+max_error_rate: 0.0   # failed / (completed + failed); 0 = no failed requests allowed
