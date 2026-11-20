@@ -13,13 +13,14 @@ def test_random_bench_command():
     assert cmd[:3] == ["vllm", "bench", "serve"]
     s = " ".join(cmd)
     for frag in (
-        "--dataset-name random", "--random-input-len 512", "--random-output-len 128", "--seed 42",
+        "--dataset-name random", "--random-input-len 512", "--random-output-len 128", f"--seed {wl['seed']}",
         "--max-concurrency 1", "--num-warmups 10", "--ignore-eos", "--save-result",
         "--result-dir /tmp/r", "--result-filename x.json", "--num-prompts 200",
         "--percentile-metrics ttft,tpot,itl,e2el", "--metric-percentiles 50,90,95,99",
     ):  # fmt: skip
         assert frag in s, frag
     assert "--prefix-repetition-prefix-len" not in s
+    assert wl["seed"] != 42  # per-workload seed, not the shared base
 
 
 def test_prefix_repetition_bench_command():

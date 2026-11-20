@@ -147,3 +147,16 @@ def test_result_filename_suffix():
     name = C.result_filename("02", "baseline", "in512_out128_c64", 2)
     assert name == "02_baseline_in512_out128_c64_r2.json"
     assert C.result_filename("02", "baseline", "in512_out128_c64").endswith("_r0.json")
+
+
+def test_workloads_on_one_server_never_share_a_seed():
+    # Same seed on the same server = identical prompts = prefix-cache hits that inflate later runs.
+    for exp_id, exp in C.load_experiments()["experiments"].items():
+        wls = C._expand_workloads(exp["workloads"], C.load_experiments()["defaults"])
+        seeds = [w.seed for w in wls]
+        assert len(set(seeds)) == len(seeds), f"{exp_id} reuses a seed: {seeds}"
+
+
+def test_workload_seed_is_stable_and_shared_across_configs():
+    assert C.workload_seed(42, "in512_out128_c64") == C.workload_seed(42, "in512_out128_c64")
+    assert C.workload_seed(42, "in512_out128_c64") != C.workload_seed(42, "in512_out128_c32")

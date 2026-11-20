@@ -6,7 +6,8 @@ Pure Python + PyYAML. Safe to import with no GPU, no Modal credentials and no vL
 from __future__ import annotations
 
 import itertools
-from dataclasses import asdict, dataclass
+import zlib
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -160,7 +161,17 @@ def _make_workload(w: dict[str, Any], defaults: dict[str, Any]) -> Workload:
     kwargs = {k: v for k, v in w.items() if k in fields}
     if kwargs.get("dataset") == "prefix_repetition":
         kwargs["input_len"] = int(kwargs.get("prefix_len", 0)) + int(kwargs.get("suffix_len", 0))
-    return Workload(**kwargs)
+    wl = Workload(**kwargs)
+    # One seed per workload id. Workloads run back-to-back on the same server, and with prefix
+    # caching on, a shared seed means identical prompts -> later workloads get cache hits and look
+    # faster (first full run: 69-94% hit rate in 02/03). The same workload id gets the same seed
+    # in every config, so configs within an experiment still see identical prompts.
+    return replace(wl, seed=workload_seed(int(wl.seed), wl.id))
+
+
+def workload_seed(base: int, workload_id: str) -> int:
+    """Stable per-workload seed (crc32, not hash(): Python's str hash is salted per process)."""
+    return base + zlib.crc32(workload_id.encode()) % 1_000_000
 
 
 def load_experiments(config_dir: Path | None = None) -> dict[str, Any]:

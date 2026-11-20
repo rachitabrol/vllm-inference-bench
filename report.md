@@ -1,5 +1,7 @@
 # vLLM serving: engineering report
 
+> **Correction pending (2026-11-20).** A 3-repeat rerun (`44708914259-1-L4`) showed run-to-run noise is tiny (throughput CV ≤ 3.3%), so the 23% gap noted under Limitations is *not* noise. It's a measurement bug: every workload used seed 42, so workloads run back-to-back on one server sent identical prompts and prefix caching served 69–94% of prefill from cache in **02 and 03**. Numbers in 02, 03 and the 05 pick below are inflated; 01 and 04a–04d were unaffected (≤ 5% hit rate, from warm-up). Fixed with per-workload seeds; 01–03 are being re-run.
+
 All numbers below come from run `44703863719-1-L4` (`results/summary.csv`, `results/SUMMARY.md`, `plots/`). Single run per point; see Limitations for how much to trust small differences.
 
 ## Setup
