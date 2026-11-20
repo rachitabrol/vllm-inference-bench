@@ -1,0 +1,7 @@
+{
+  "run_id": "44708914259-1-L4",
+  "gpu": "L4",
+  "smoke": false,
+  "experiments": "all",
+  "repeats": 3
+}

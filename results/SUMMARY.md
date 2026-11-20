@@ -1,6 +1,7 @@
 # Benchmark summary
 
-- Runs: 44703863719-1-L4
+- Runs: 44708914259-1-L4
+- Repeats: n = 3..3 runs per point (tables show medians; throughput as median (min–max) when n>1)
 - GPU: L4  |  vLLM: 0.34.0
 - Model(s): Qwen/Qwen2.5-1.5B-Instruct
 - SLO: p95 TTFT <= 500 ms, p95 TPOT <= 50 ms, error rate <= 0
@@ -9,63 +10,99 @@
 
 ## 01 Baseline single-user latency
 
-| config | conc | in | out | out tok/s | req/s | TTFT p50 | TTFT p95 | TPOT p50 | TPOT p95 | E2E p95 | failed | $/1M out | SLO |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| baseline | 1 | 512 | 128 | 73 | 0.57 | 36 | 39 | 13.4 | 13.5 | 1747 | 0 | 3.024 | yes |
+| config | n | conc | in | out | out tok/s | req/s | TTFT p50 | TTFT p95 | TPOT p50 | TPOT p95 | E2E p95 | failed | $/1M out | SLO |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| baseline | 3 | 1 | 512 | 128 | 73 (73–74) | 0.57 | 38 | 39 | 13.4 | 13.5 | 1752 | 0 | 3.031 | yes |
 
 ## 02 Concurrency sweep
 
-| config | conc | in | out | out tok/s | req/s | TTFT p50 | TTFT p95 | TPOT p50 | TPOT p95 | E2E p95 | failed | $/1M out | SLO |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| baseline | 1 | 512 | 128 | 73 | 0.57 | 39 | 48 | 13.5 | 13.5 | 1773 | 0 | 3.037 | yes |
-| baseline | 4 | 512 | 128 | 275 | 2.15 | 45 | 107 | 13.9 | 16.5 | 2146 | 0 | 0.807 | yes |
-| baseline | 8 | 512 | 128 | 545 | 4.26 | 51 | 89 | 14.2 | 14.7 | 1963 | 0 | 0.407 | yes |
-| baseline | 16 | 512 | 128 | 999 | 7.80 | 64 | 120 | 15.0 | 15.2 | 2001 | 0 | 0.223 | yes |
-| baseline | 32 | 512 | 128 | 1603 | 12.52 | 132 | 191 | 17.6 | 17.9 | 2401 | 0 | 0.139 | yes |
-| baseline | 64 | 512 | 128 | 2438 | 19.05 | 250 | 832 | 22.0 | 32.1 | 4312 | 0 | 0.091 | NO |
+| config | n | conc | in | out | out tok/s | req/s | TTFT p50 | TTFT p95 | TPOT p50 | TPOT p95 | E2E p95 | failed | $/1M out | SLO |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| baseline | 3 | 1 | 512 | 128 | 73 (73–73) | 0.57 | 39 | 40 | 13.5 | 13.5 | 1755 | 0 | 3.040 | yes |
+| baseline | 3 | 4 | 512 | 128 | 284 (283–284) | 2.22 | 45 | 49 | 13.8 | 13.9 | 1812 | 0 | 0.783 | yes |
+| baseline | 3 | 8 | 512 | 128 | 550 (550–551) | 4.30 | 49 | 70 | 14.2 | 14.3 | 1871 | 0 | 0.404 | yes |
+| baseline | 3 | 16 | 512 | 128 | 999 (996–1001) | 7.80 | 68 | 120 | 15.0 | 15.2 | 2005 | 0 | 0.223 | yes |
+| baseline | 3 | 32 | 512 | 128 | 1608 (1604–1610) | 12.56 | 111 | 209 | 17.5 | 17.8 | 2385 | 0 | 0.138 | yes |
+| baseline | 3 | 64 | 512 | 128 | 2478 (2458–2478) | 19.36 | 244 | 926 | 21.8 | 31.7 | 4311 | 0 | 0.090 | NO |
 
 ## 03 Prefill vs decode (input/output length)
 
-| config | conc | in | out | out tok/s | req/s | TTFT p50 | TTFT p95 | TPOT p50 | TPOT p95 | E2E p95 | failed | $/1M out | SLO |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| baseline | 8 | 128 | 64 | 547 | 8.55 | 54 | 94 | 13.8 | 14.1 | 954 | 0 | 0.406 | yes |
-| baseline | 8 | 128 | 512 | 576 | 1.13 | 48 | 67 | 13.8 | 13.9 | 7134 | 0 | 0.385 | yes |
-| baseline | 8 | 1024 | 64 | 382 | 5.96 | 237 | 401 | 17.5 | 19.9 | 1394 | 0 | 0.582 | yes |
-| baseline | 8 | 1024 | 512 | 541 | 1.06 | 52 | 77 | 14.7 | 14.7 | 7584 | 0 | 0.411 | yes |
-| baseline | 8 | 4096 | 64 | 178 | 2.78 | 708 | 975 | 34.3 | 42.1 | 3162 | 0 | 1.251 | NO |
-| baseline | 8 | 4096 | 512 | 375 | 0.73 | 807 | 846 | 19.8 | 20.5 | 11108 | 0 | 0.592 | NO |
+| config | n | conc | in | out | out tok/s | req/s | TTFT p50 | TTFT p95 | TPOT p50 | TPOT p95 | E2E p95 | failed | ITL p99 | $/1M out | SLO |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| baseline | 3 | 8 | 128 | 64 | 539 (537–541) | 8.43 | 64 | 89 | 13.9 | 14.4 | 961 | 0 | 22.7 | 0.412 | yes |
+| baseline | 3 | 8 | 128 | 512 | 572 (569–573) | 1.12 | 48 | 64 | 13.9 | 13.9 | 7174 | 0 | 17.4 | 0.388 | yes |
+| baseline | 3 | 8 | 1024 | 64 | 378 (369–378) | 5.91 | 287 | 351 | 17.0 | 20.1 | 1364 | 0 | 112.7 | 0.588 | yes |
+| baseline | 3 | 8 | 1024 | 512 | 539 (537–539) | 1.05 | 54 | 72 | 14.8 | 14.8 | 7628 | 0 | 18.2 | 0.412 | yes |
+| baseline | 3 | 8 | 4096 | 64 | 169 (169–174) | 2.65 | 757 | 988 | 35.6 | 44.1 | 3356 | 0 | 158.3 | 1.312 | NO |
+| baseline | 3 | 8 | 4096 | 512 | 366 (365–369) | 0.71 | 894 | 948 | 20.3 | 20.9 | 11267 | 0 | 149.8 | 0.607 | NO |
 
 ## 04a max_num_seqs
 
-| config | conc | in | out | out tok/s | req/s | TTFT p50 | TTFT p95 | TPOT p50 | TPOT p95 | E2E p95 | failed | GPU util % | KV peak % | $/1M out | SLO |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| max_seqs_8 | 64 | 512 | 128 | 504 | 3.94 | 14365 | 14431 | 14.9 | 15.6 | 16266 | 0 | 78 | 1 | 0.441 | NO |
-| max_seqs_32 | 64 | 512 | 128 | 1343 | 10.49 | 3241 | 3685 | 22.2 | 22.8 | 6447 | 0 | 57 | 3 | 0.165 | NO |
-| baseline | 64 | 512 | 128 | 1869 | 14.60 | 382 | 1635 | 31.0 | 32.7 | 5526 | 0 | 50 | 7 | 0.119 | NO |
+| config | n | conc | in | out | out tok/s | req/s | TTFT p50 | TTFT p95 | TPOT p50 | TPOT p95 | E2E p95 | failed | GPU util % | KV peak % | $/1M out | SLO |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| max_seqs_8 | 3 | 64 | 512 | 128 | 504 (503–508) | 3.94 | 14344 | 14426 | 14.9 | 15.6 | 16269 | 0 | 73 | 1 | 0.441 | NO |
+| max_seqs_32 | 3 | 64 | 512 | 128 | 1345 (1330–1347) | 10.51 | 3243 | 3675 | 21.9 | 22.9 | 6425 | 0 | 51 | 3 | 0.165 | NO |
+| baseline | 3 | 64 | 512 | 128 | 1851 (1850–1885) | 14.46 | 389 | 1657 | 31.3 | 32.7 | 5615 | 0 | 47 | 7 | 0.120 | NO |
 
 ## 04b max_num_batched_tokens
 
-| config | conc | in | out | out tok/s | req/s | TTFT p50 | TTFT p95 | TPOT p50 | TPOT p95 | E2E p95 | failed | ITL p95 | $/1M out | SLO |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| batched_tokens_512 | 16 | 4096 | 128 | 288 | 2.25 | 636 | 1617 | 50.2 | 52.0 | 7333 | 0 | 56.6 | 0.771 | NO |
-| baseline | 16 | 4096 | 128 | 297 | 2.32 | 875 | 1531 | 47.0 | 49.5 | 7342 | 0 | 147.5 | 0.749 | NO |
-| batched_tokens_8192 | 16 | 4096 | 128 | 291 | 2.28 | 1914 | 2638 | 39.8 | 51.2 | 7374 | 0 | 28.0 | 0.763 | NO |
+| config | n | conc | in | out | out tok/s | req/s | TTFT p50 | TTFT p95 | TPOT p50 | TPOT p95 | E2E p95 | failed | ITL p95 | ITL p99 | $/1M out | SLO |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| batched_tokens_512 | 3 | 16 | 4096 | 128 | 285 (282–287) | 2.23 | 642 | 1635 | 51.0 | 51.6 | 7447 | 0 | 56.6 | 59.2 | 0.780 | NO |
+| baseline | 3 | 16 | 4096 | 128 | 300 (284–302) | 2.35 | 768 | 1493 | 47.0 | 49.3 | 7382 | 0 | 147.1 | 151.1 | 0.740 | NO |
+| batched_tokens_8192 | 3 | 16 | 4096 | 128 | 289 (284–290) | 2.26 | 1938 | 2672 | 39.6 | 51.2 | 7832 | 0 | 27.0 | 560.2 | 0.768 | NO |
 
 ## 04c Prefix caching
 
-| config | conc | in | out | out tok/s | req/s | TTFT p50 | TTFT p95 | TPOT p50 | TPOT p95 | E2E p95 | failed | prefix hit rate | $/1M out | SLO |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| no_prefix_cache | 16 | 1152 | 128 | 613 | 4.79 | 430 | 590 | 22.1 | 24.3 | 3389 | 0 | - | 0.362 | NO |
-| baseline | 16 | 1152 | 128 | 990 | 7.73 | 109 | 174 | 14.8 | 15.3 | 2020 | 0 | 0.89 | 0.225 | yes |
+| config | n | conc | in | out | out tok/s | req/s | TTFT p50 | TTFT p95 | TPOT p50 | TPOT p95 | E2E p95 | failed | prefix hit rate | $/1M out | SLO |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| no_prefix_cache | 3 | 16 | 1152 | 128 | 646 (645–647) | 5.05 | 331 | 507 | 21.7 | 23.2 | 3202 | 0 | - | 0.344 | NO |
+| baseline | 3 | 16 | 1152 | 128 | 996 (989–997) | 7.78 | 98 | 161 | 14.9 | 15.2 | 2008 | 0 | 0.89 | 0.223 | yes |
 
 ## 04d KV cache capacity (kv_cache_memory_bytes)
 
-| config | conc | in | out | out tok/s | req/s | TTFT p50 | TTFT p95 | TPOT p50 | TPOT p95 | E2E p95 | failed | KV peak % | preemptions | $/1M out | SLO |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| baseline | 64 | 1024 | 512 | 1871 | 3.65 | 586 | 3414 | 33.2 | 33.5 | 20348 | 0 | 17 | 0 | 0.119 | NO |
-| kv_cache_2gib | 64 | 1024 | 512 | 1670 | 3.26 | 1653 | 6961 | 30.6 | 45.7 | 26142 | 0 | 100 | 70 | 0.133 | NO |
+| config | n | conc | in | out | out tok/s | req/s | TTFT p50 | TTFT p95 | TPOT p50 | TPOT p95 | E2E p95 | failed | KV peak % | preemptions | $/1M out | SLO |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| baseline | 3 | 64 | 1024 | 512 | 1905 (1848–1907) | 3.72 | 569 | 3330 | 32.6 | 32.9 | 19965 | 0 | 17 | 0 | 0.117 | NO |
+| kv_cache_2gib | 3 | 64 | 1024 | 512 | 1670 (1631–1672) | 3.26 | 1656 | 6969 | 30.6 | 45.7 | 26143 | 0 | 100 | 70 | 0.133 | NO |
 
 ## 05 Cost / performance under SLO
 
-Best config meeting the SLO (max output tok/s = min $/1M tokens): **baseline** at concurrency **32** (experiment 02, L4): 1603 output tok/s, p95 TTFT 191 ms, p95 TPOT 17.9 ms, **$0.139 per 1M output tokens**.
+Best config meeting the SLO (max output tok/s = min $/1M tokens): **baseline** at concurrency **32** (experiment 02, L4): 1608 output tok/s (median of n=3), p95 TTFT 209 ms, p95 TPOT 17.8 ms, **$0.138 per 1M output tokens**.
+
+## Run-to-run variance
+
+One row per (experiment, config, workload); each repeat ran in its own container. CV = sample std / mean.
+
+| exp | config | workload | n | tok/s median | min | max | CV % | p95 TTFT CV % |
+|---|---|---|---|---|---|---|---|---|
+| 01 | baseline | in512_out128_c1 | 3 | 73 | 73 | 74 | 0.7 | 10.3 |
+| 02 | baseline | in512_out128_c1 | 3 | 73 | 73 | 73 | 0.2 | 4.1 |
+| 02 | baseline | in512_out128_c4 | 3 | 284 | 283 | 284 | 0.2 | 11.1 |
+| 02 | baseline | in512_out128_c8 | 3 | 550 | 550 | 551 | 0.1 | 2.6 |
+| 02 | baseline | in512_out128_c16 | 3 | 999 | 996 | 1001 | 0.2 | 3.0 |
+| 02 | baseline | in512_out128_c32 | 3 | 1608 | 1604 | 1610 | 0.2 | 23.6 |
+| 02 | baseline | in512_out128_c64 | 3 | 2478 | 2458 | 2478 | 0.5 | 19.2 |
+| 03 | baseline | in128_out64_c8 | 3 | 539 | 537 | 541 | 0.3 | 5.4 |
+| 03 | baseline | in128_out512_c8 | 3 | 572 | 569 | 573 | 0.4 | 6.3 |
+| 03 | baseline | in1024_out64_c8 | 3 | 378 | 369 | 378 | 1.4 | 9.4 |
+| 03 | baseline | in1024_out512_c8 | 3 | 539 | 537 | 539 | 0.2 | 5.7 |
+| 03 | baseline | in4096_out64_c8 | 3 | 169 | 169 | 174 | 1.7 | 6.0 |
+| 03 | baseline | in4096_out512_c8 | 3 | 366 | 365 | 369 | 0.6 | 8.1 |
+| 04a | baseline | in512_out128_c64 | 3 | 1851 | 1850 | 1885 | 1.1 | 2.6 |
+| 04a | max_seqs_32 | in512_out128_c64 | 3 | 1345 | 1330 | 1347 | 0.7 | 0.6 |
+| 04a | max_seqs_8 | in512_out128_c64 | 3 | 504 | 503 | 508 | 0.6 | 0.5 |
+| 04b | baseline | in4096_out128_c16 | 3 | 300 | 284 | 302 | 3.3 | 1.5 |
+| 04b | batched_tokens_512 | in4096_out128_c16 | 3 | 285 | 282 | 287 | 0.8 | 0.5 |
+| 04b | batched_tokens_8192 | in4096_out128_c16 | 3 | 289 | 284 | 290 | 1.0 | 5.5 |
+| 04c | baseline | prefix1024x1_sfx128_out128_c16 | 3 | 996 | 989 | 997 | 0.4 | 5.3 |
+| 04c | no_prefix_cache | prefix1024x1_sfx128_out128_c16 | 3 | 646 | 645 | 647 | 0.2 | 1.5 |
+| 04d | baseline | in1024_out512_c64 | 3 | 1905 | 1848 | 1907 | 1.8 | 1.7 |
+| 04d | kv_cache_2gib | in1024_out512_c64 | 3 | 1670 | 1631 | 1672 | 1.4 | 0.9 |
+
+Throughput CV across 23 groups: max 3.3%, median 0.6%. p95 TTFT CV: max 23.6%, median 5.3%.
+
+### Same config + workload in different experiments
+
+- `baseline` in512_out128_c64 in experiments 02, 04a (per-experiment medians 02: 2478 tok/s; 04a: 1851 tok/s; gap 33.8%). Pooled n=6: median 2171, min 1850, max 2478 tok/s, CV 15.4%, p95 TTFT CV 29.3%.
 
