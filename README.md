@@ -40,7 +40,7 @@ Each variant differs from the `baseline` config in exactly one flag. Each (exper
 
 GitHub Actions orchestrates the run and Modal supplies the GPUs.
 
-![Architecture](docs/architecture.svg)
+![Architecture](docs/architecture.png)
 
 ```
 benchmark/   Modal app, server lifecycle, workload commands, telemetry sampler, config loader
@@ -48,7 +48,7 @@ configs/     baseline and one-flag variants, experiment matrix, SLO, GPU prices
 analysis/    aggregation (medians, spread, SLO, cost), plots, tests with synthetic fixtures
 results/     raw JSON per run, summary.csv, summary_agg.csv, SUMMARY.md
 plots/       latency and throughput curves, per-setting comparisons, cost vs latency
-docs/        architecture diagram
+docs/        architecture diagram (SVG source and PNG)
 report.md    engineering report
 ```
 
