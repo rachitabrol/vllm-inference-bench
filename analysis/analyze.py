@@ -338,7 +338,7 @@ def pick_best_under_slo(df: pd.DataFrame) -> pd.Series | None:
 
 def _finish(fig: plt.Figure, path: Path, fixture: bool) -> None:
     if fixture:
-        fig.text(0.5, 0.5, "FIXTURE DATA - NOT REAL RESULTS", ha="center", va="center", fontsize=26,
+        fig.text(0.5, 0.5, "FIXTURE DATA: NOT MEASURED RESULTS", ha="center", va="center", fontsize=26,
                  color="#c0392b", alpha=0.18, rotation=20)  # fmt: skip
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path)
@@ -558,11 +558,16 @@ def plot_05(df: pd.DataFrame, slo: dict, plots: Path, fixture: bool) -> list[Pat
 # ---- markdown ----------------------------------------------------------------------------------
 
 
+def _n_label(df) -> str:
+    lo, hi = int(df["n"].min()), int(df["n"].max())
+    return f"n = {lo}" if lo == hi else f"n = {lo} to {hi}"
+
+
 def _fmt(v: Any, nd: int = 1) -> str:
     if v is None or (isinstance(v, float) and math.isnan(v)):
         return "-"
     if isinstance(v, bool):
-        return "yes" if v else "NO"
+        return "Yes" if v else "No"
     if isinstance(v, float):
         return f"{v:.{nd}f}"
     return str(v)
@@ -631,10 +636,10 @@ def build_summary_md(
     versions = ", ".join(sorted(map(str, df["vllm_version"].dropna().unique())))
     out: list[str] = ["# Benchmark summary", ""]
     if fixture:
-        out += ["> **FIXTURE DATA - NOT REAL RESULTS.** Generated from test fixtures.", ""]
+        out += ["> **FIXTURE DATA: NOT MEASURED RESULTS.** Generated from test fixtures.", ""]
     out += [
         f"- Runs: {', '.join(sorted(map(str, runs['run_id'].dropna().unique())))}",
-        f"- Repeats: n = {int(df['n'].min())}..{int(df['n'].max())} runs per point (tables show medians; "
+        f"- Repeats: {_n_label(df)} per point (tables show medians; "
         "throughput as median (min\u2013max) when n>1)",
         f"- GPU: {gpus}  |  vLLM: {versions}",
         f"- Model(s): {', '.join(sorted(map(str, df['model'].dropna().unique())))}",

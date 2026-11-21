@@ -1,4 +1,4 @@
-"""analyze.py end-to-end on fixture JSON (no GPU, no Modal). Fixture numbers are fake."""
+"""End-to-end tests for analyze.py on synthetic fixture JSON (no GPU, no Modal)."""
 
 import json
 import math
@@ -34,7 +34,7 @@ def out(tmp_path_factory):
     return d, df
 
 
-def test_fixtures_are_marked_fake():
+def test_fixtures_are_marked_synthetic():
     files = sorted(FIX.glob("*.json"))
     assert files
     for f in files:

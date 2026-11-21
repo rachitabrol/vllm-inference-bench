@@ -13,18 +13,18 @@ on:
         options: [L4, A100-40GB, A10G, H100]
         default: L4
       smoke:
-        description: "Smoke test: 0.5B model, 20 prompts, concurrency 1+4, experiments 01+02 only (cents)"
+        description: "Smoke test: 0.5B model, 20 prompts, concurrency 1+4, experiments 01+02 only (approx. $0.10)"
         type: boolean
         default: true
       repeats:
-        description: "Repeats per job (each in its own container; ignored = 1 in smoke mode)"
+        description: "Repeats per job (each in its own container; forced to 1 in smoke mode)"
         type: string
         default: "3"
 
 permissions:
   contents: write
 
-# never run two paid benchmarks at once
+# Prevent two paid benchmark runs from overlapping
 concurrency:
   group: benchmark
   cancel-in-progress: false
@@ -41,7 +41,7 @@ jobs:
       SMOKE: ${{ inputs.smoke }}
       REPEATS: ${{ inputs.repeats }}
     steps:
-      - name: Fail loudly if Modal secrets are missing
+      - name: Verify that Modal secrets are set
         run: |
           missing=0
           for v in MODAL_TOKEN_ID MODAL_TOKEN_SECRET; do

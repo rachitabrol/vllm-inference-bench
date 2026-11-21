@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 460" width="1000" height="460" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-labelledby="t d">
+  <title id="t">Benchmark architecture</title>
+  <desc id="d">GitHub Actions dispatches one job per configuration and repeat to Modal. Each job starts vLLM in its own GPU container, runs the workloads, samples telemetry and returns JSON. Actions analyses the results and commits them.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#475569"/>
+    </marker>
+  </defs>
+
+  <rect width="1000" height="460" rx="14" fill="#ffffff"/>
+
+  <!-- GitHub Actions panel -->
+  <rect x="20" y="20" width="290" height="420" rx="12" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text x="40" y="52" font-size="16" font-weight="700" fill="#0f172a">GitHub Actions</text>
+  <text x="40" y="71" font-size="12" fill="#64748b">CPU runner, orchestration only</text>
+
+  <rect x="40" y="90" width="250" height="64" rx="8" fill="#fff" stroke="#94a3b8"/>
+  <text x="165" y="115" font-size="13" font-weight="600" fill="#0f172a" text-anchor="middle">Manual trigger</text>
+  <text x="165" y="135" font-size="11.5" fill="#475569" text-anchor="middle">experiments · gpu · repeats · smoke</text>
+
+  <line x1="165" y1="154" x2="165" y2="182" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="40" y="184" width="250" height="64" rx="8" fill="#fff" stroke="#94a3b8"/>
+  <text x="165" y="209" font-size="13" font-weight="600" fill="#0f172a" text-anchor="middle">modal run</text>
+  <text x="165" y="229" font-size="11.5" fill="#475569" text-anchor="middle">one job per config × repeat</text>
+
+  <rect x="40" y="290" width="250" height="64" rx="8" fill="#fff" stroke="#94a3b8"/>
+  <text x="165" y="315" font-size="13" font-weight="600" fill="#0f172a" text-anchor="middle">analysis/analyze.py</text>
+  <text x="165" y="335" font-size="11.5" fill="#475569" text-anchor="middle">medians · spread · SLO · $ per 1M tokens</text>
+
+  <line x1="165" y1="354" x2="165" y2="372" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="40" y="374" width="250" height="52" rx="8" fill="#fff" stroke="#94a3b8"/>
+  <text x="165" y="397" font-size="13" font-weight="600" fill="#0f172a" text-anchor="middle">Commit results</text>
+  <text x="165" y="414" font-size="11.5" fill="#475569" text-anchor="middle">results/ · plots/ · job summary</text>
+
+  <!-- Arrows between panels -->
+  <line x1="290" y1="216" x2="348" y2="216" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="319" y="207" font-size="11" fill="#64748b" text-anchor="middle">jobs</text>
+
+  <line x1="348" y1="322" x2="292" y2="322" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="320" y="313" font-size="11" fill="#64748b" text-anchor="middle">JSON</text>
+
+  <!-- Modal panel -->
+  <rect x="350" y="20" width="630" height="420" rx="12" fill="#f0fdf4" stroke="#bbf7d0"/>
+  <text x="370" y="52" font-size="16" font-weight="700" fill="#14532d">Modal</text>
+  <text x="370" y="71" font-size="12" fill="#4d7c5f">one fresh GPU container per job (NVIDIA L4 in the reported runs)</text>
+
+  <rect x="370" y="90" width="130" height="100" rx="8" fill="#fff" stroke="#86efac"/>
+  <text x="435" y="114" font-size="12.5" font-weight="600" fill="#0f172a" text-anchor="middle">1. vllm serve</text>
+  <text x="435" y="134" font-size="11" fill="#475569" text-anchor="middle">config flags</text>
+  <text x="435" y="150" font-size="11" fill="#475569" text-anchor="middle">baseline or a</text>
+  <text x="435" y="166" font-size="11" fill="#475569" text-anchor="middle">one-flag variant</text>
+
+  <rect x="516" y="90" width="130" height="100" rx="8" fill="#fff" stroke="#86efac"/>
+  <text x="581" y="114" font-size="12.5" font-weight="600" fill="#0f172a" text-anchor="middle">2. Health check</text>
+  <text x="581" y="134" font-size="11" fill="#475569" text-anchor="middle">wait for /health</text>
+  <text x="581" y="150" font-size="11" fill="#475569" text-anchor="middle">model loaded,</text>
+  <text x="581" y="166" font-size="11" fill="#475569" text-anchor="middle">server ready</text>
+
+  <rect x="662" y="90" width="130" height="100" rx="8" fill="#fff" stroke="#86efac"/>
+  <text x="727" y="114" font-size="12.5" font-weight="600" fill="#0f172a" text-anchor="middle">3. vllm bench serve</text>
+  <text x="727" y="134" font-size="11" fill="#475569" text-anchor="middle">each workload:</text>
+  <text x="727" y="150" font-size="11" fill="#475569" text-anchor="middle">warm-up, then</text>
+  <text x="727" y="166" font-size="11" fill="#475569" text-anchor="middle">measured run</text>
+
+  <rect x="808" y="90" width="130" height="100" rx="8" fill="#fff" stroke="#86efac"/>
+  <text x="873" y="114" font-size="12.5" font-weight="600" fill="#0f172a" text-anchor="middle">4. Return results</text>
+  <text x="873" y="134" font-size="11" fill="#475569" text-anchor="middle">one JSON per</text>
+  <text x="873" y="150" font-size="11" fill="#475569" text-anchor="middle">workload, then</text>
+  <text x="873" y="166" font-size="11" fill="#475569" text-anchor="middle">stop the server</text>
+
+  <line x1="500" y1="140" x2="514" y2="140" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="646" y1="140" x2="660" y2="140" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="792" y1="140" x2="806" y2="140" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="370" y="214" width="568" height="62" rx="8" fill="#fff" stroke="#86efac" stroke-dasharray="5 4"/>
+  <text x="654" y="237" font-size="12.5" font-weight="600" fill="#0f172a" text-anchor="middle">Telemetry sampler, every 0.5 s during each run</text>
+  <text x="654" y="257" font-size="11" fill="#475569" text-anchor="middle">nvidia-smi memory and utilization · vLLM /metrics: KV-cache usage, preemptions, prefix-cache hits</text>
+
+  <rect x="370" y="300" width="270" height="62" rx="8" fill="#fff" stroke="#86efac"/>
+  <text x="505" y="324" font-size="12.5" font-weight="600" fill="#0f172a" text-anchor="middle">Modal Volume</text>
+  <text x="505" y="344" font-size="11" fill="#475569" text-anchor="middle">Hugging Face weight cache, shared by jobs</text>
+
+  <rect x="668" y="300" width="270" height="62" rx="8" fill="#fff" stroke="#86efac"/>
+  <text x="803" y="324" font-size="12.5" font-weight="600" fill="#0f172a" text-anchor="middle">Isolation</text>
+  <text x="803" y="344" font-size="11" fill="#475569" text-anchor="middle">no server state shared between jobs</text>
+
+  <text x="654" y="400" font-size="11.5" fill="#4d7c5f" text-anchor="middle">Jobs run in parallel (up to 8 containers). Repeats of a point run in separate containers.</text>
+</svg>

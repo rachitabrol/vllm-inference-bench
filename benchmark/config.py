@@ -1,6 +1,6 @@
 """Config loading (with `base:` inheritance), `vllm serve` flag rendering, and job building.
 
-Pure Python + PyYAML. Safe to import with no GPU, no Modal credentials and no vLLM installed.
+Pure Python with PyYAML. Safe to import with no GPU, no Modal credentials and no vLLM installed.
 """
 
 from __future__ import annotations
@@ -163,8 +163,8 @@ def _make_workload(w: dict[str, Any], defaults: dict[str, Any]) -> Workload:
         kwargs["input_len"] = int(kwargs.get("prefix_len", 0)) + int(kwargs.get("suffix_len", 0))
     wl = Workload(**kwargs)
     # One seed per workload id. Workloads run back-to-back on the same server, and with prefix
-    # caching on, a shared seed means identical prompts -> later workloads get cache hits and look
-    # faster (first full run: 69-94% hit rate in 02/03). The same workload id gets the same seed
+    # caching on, a shared seed means identical prompts -> later workloads receive cache hits and appear
+    # faster (first full run: hit rates of up to 0.94 in 02/03). The same workload id gets the same seed
     # in every config, so configs within an experiment still see identical prompts.
     return replace(wl, seed=workload_seed(int(wl.seed), wl.id))
 
